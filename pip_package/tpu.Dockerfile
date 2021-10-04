@@ -7,7 +7,7 @@ ENV PIP_MANYLINUX2010="1"
 
 # There are some problems with the python3 installation from custom-op-ubuntu16.
 # Remove it and install new ones.
-RUN apt-get remove --purge -y python3.5 python3.6 python3.7 python3.9
+RUN apt-get remove --purge -y python3.5 python3.6
 RUN rm -f /etc/apt/sources.list.d/jonathonf-ubuntu-python-3_6-xenial.list
 RUN apt-key del F06FC659
 
