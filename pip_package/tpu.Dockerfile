@@ -21,14 +21,14 @@ RUN wget https://github.com/bazelbuild/bazel/releases/download/3.7.2/bazel-3.7.2
 RUN bash bazel-3.7.2-installer-linux-x86_64.sh
 
 RUN git clone --single-branch --branch master https://github.com/tensorflow/tensorflow.git --depth=1
-RUN pip3 install pip six 'numpy<1.19.0' wheel setuptools mock 'future>=0.17.1'
-RUN pip3 install keras_applications --no-deps
-RUN pip3 install keras_preprocessing --no-deps
+RUN pip3.8 install pip six 'numpy<1.19.0' wheel setuptools mock 'future>=0.17.1'
+RUN pip3.8 install keras_applications --no-deps
+RUN pip3.8 install keras_preprocessing --no-deps
 WORKDIR /tensorflow
 RUN yes '' | ./configure
 RUN bazel build --config=opt --distinct_host_configuration=true --define=framework_shared_object=true --define=with_tpu_support=true --copt=-DLIBTPU_ON_GCE //tensorflow/tools/pip_package:build_pip_package
 RUN ./bazel-bin/tensorflow/tools/pip_package/build_pip_package --nightly_flag /tmp/tensorflow_pkg
-RUN pip3 install /tmp/tensorflow_pkg/*.whl
+RUN pip3.8 install /tmp/tensorflow_pkg/*.whl
 
 WORKDIR /
 
