@@ -38,7 +38,7 @@ RUN for python in python3.8; do \
         numpy \
         sympy \
         twine && \
-      $python -m pip install pip six 'numpy<1.19.0' wheel setuptools mock 'future>=0.17.1' \
+      $python -m pip install six 'numpy<1.19.0' wheel setuptools mock 'future>=0.17.1' \
       $python -m pip install keras_applications --no-deps \
       $python -m pip install keras_preprocessing --no-deps \
       bazel build --config=opt --distinct_host_configuration=true --define=framework_shared_object=true --define=with_tpu_support=true --copt=-DLIBTPU_ON_GCE //tensorflow/tools/pip_package:build_pip_package \
