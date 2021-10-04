@@ -23,6 +23,7 @@ RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
 RUN wget https://github.com/bazelbuild/bazel/releases/download/3.7.2/bazel-3.7.2-installer-linux-x86_64.sh > /dev/null
 RUN bash bazel-3.7.2-installer-linux-x86_64.sh
 
+RUN yes '' | ./configure
 
 RUN for python in python3.8; do \
       $python get-pip.py && \
