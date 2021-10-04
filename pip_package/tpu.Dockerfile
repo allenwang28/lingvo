@@ -1,4 +1,5 @@
-FROM tensorflow/tensorflow:custom-op-ubuntu16
+#FROM tensorflow/tensorflow:custom-op-ubuntu16
+FROM ubuntu:20.04
 
 ENV GITHUB_BRANCH="master"
 ENV PYTHON_VERSION="3"
@@ -7,12 +8,12 @@ ENV PIP_MANYLINUX2010="1"
 
 # There are some problems with the python3 installation from custom-op-ubuntu16.
 # Remove it and install new ones.
-RUN apt-get remove --purge -y python3.5 python3.6
-RUN rm -f /etc/apt/sources.list.d/jonathonf-ubuntu-python-3_6-xenial.list
-RUN apt-key del F06FC659
+#RUN apt-get remove --purge -y python3.5 python3.6
+#RUN rm -f /etc/apt/sources.list.d/jonathonf-ubuntu-python-3_6-xenial.list
+#RUN apt-key del F06FC659
 
-RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys BA6932366A755776
-RUN echo "deb http://ppa.launchpad.net/deadsnakes/ppa/ubuntu xenial main" > /etc/apt/sources.list.d/deadsnakes-ppa-xenial.list
+#RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys BA6932366A755776
+#RUN echo "deb http://ppa.launchpad.net/deadsnakes/ppa/ubuntu xenial main" > /etc/apt/sources.list.d/deadsnakes-ppa-xenial.list
 RUN apt-get update && apt-get install -y python3.8 python3.8-distutils
 
 RUN git clone --single-branch --branch master https://github.com/tensorflow/tensorflow.git --depth=1
