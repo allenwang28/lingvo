@@ -45,7 +45,7 @@ RUN for python in python3.8; do \
         wheel && \
       $python -m pip install keras_applications --no-deps && \
       $python -m pip install keras_preprocessing --no-deps && \
-      bazel build --config=opt --distinct_host_configuration=true --define=framework_shared_object=true --define=with_tpu_support=true --copt=-DLIBTPU_ON_GCE --copt=-D_LIBGCXX_USE_CXX14_ABI=0 -std=c++14 //tensorflow/tools/pip_package:build_pip_package && \
+      bazel build --config=opt --distinct_host_configuration=true --define=framework_shared_object=true --define=with_tpu_support=true --copt=-DLIBTPU_ON_GCE --copt=-D_LIBGCXX_USE_CXX14_ABI=0 --copt=-std=c++14 //tensorflow/tools/pip_package:build_pip_package && \
       ./bazel-bin/tensorflow/tools/pip_package/build_pip_package --nightly_flag /tmp/tensorflow_pkg && \
       $python -m pip install /tmp/tensorflow_pkg/*.whl && \
       $python -m pip install tensorflow-datasets tensorflow-text --no-deps; \
