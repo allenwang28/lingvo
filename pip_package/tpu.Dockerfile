@@ -17,7 +17,6 @@ RUN apt-get update && apt-get install -y python3.8 python3.8-distutils
 
 RUN git clone --single-branch --branch master https://github.com/tensorflow/tensorflow.git --depth=1
 WORKDIR /tensorflow
-RUN install pip six 'numpy<1.19.0' wheel setuptools mock 'future>=0.17.1'
 
 RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
 
