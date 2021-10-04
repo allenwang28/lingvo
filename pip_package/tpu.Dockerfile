@@ -14,17 +14,17 @@ RUN apt-key del F06FC659
 RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys BA6932366A755776
 RUN echo "deb http://ppa.launchpad.net/deadsnakes/ppa/ubuntu xenial main" > /etc/apt/sources.list.d/deadsnakes-ppa-xenial.list
 RUN apt-get update && apt-get install -y python3.8 python3.8-distutils
+
+RUN git clone --single-branch --branch master https://github.com/tensorflow/tensorflow.git --depth=1
+WORKDIR /tensorflow
+
 RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
 
 # Download and install bazel.
 RUN wget https://github.com/bazelbuild/bazel/releases/download/3.7.2/bazel-3.7.2-installer-linux-x86_64.sh > /dev/null
 RUN bash bazel-3.7.2-installer-linux-x86_64.sh
 
-RUN git clone --single-branch --branch master https://github.com/tensorflow/tensorflow.git --depth=1
 
-WORKDIR /
-
-WORKDIR /tensorflow
 RUN for python in python3.8; do \
       $python get-pip.py && \
       $python -m pip install --upgrade pip setuptools auditwheel && \
