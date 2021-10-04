@@ -6,6 +6,14 @@ ENV PYTHON_VERSION="3"
 ENV PYTHON_MINOR_VERSION="9"
 ENV PIP_MANYLINUX2010="1"
 
+RUN apt-get update && apt-get install -y \
+  python3-pip \
+  curl \
+  git \
+  build-essential \
+  g++ \
+  wget
+
 # There are some problems with the python3 installation from custom-op-ubuntu16.
 # Remove it and install new ones.
 #RUN apt-get remove --purge -y python3.5 python3.6
