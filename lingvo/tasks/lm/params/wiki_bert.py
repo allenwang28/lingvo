@@ -148,12 +148,12 @@ class MLPerfTrainTemplate(BertTemplate):
     p.batch_size = self.BATCH_SIZE
     p.enable_packing = True
     p.shuffle = True
-    p.input_file = 'gs://mlperf_v1_1/bert/train'
+    p.input_file = 'gs://mlperf_v1_1/bert/train/*'
     return p
 
   def Test(self):
     p = input_generator.TFRecordBertInput.Params()
-    p.input_file = 'gs://mlperf_v1_1/bert/eval'
+    p.input_file = 'gs://mlperf_v1_1/bert/eval/data'
     p.name = 'test'
     p.batch_size = 512
     return p
@@ -231,3 +231,20 @@ class MLPerfBertDense1TWider(MLPerfBertDense1T):
   NUM_TRANSFORMER_LAYERS = 32
   HIDDEN_DIM = 131072 * 2
   MODEL_DIM = 16384 * 2
+
+"""
+bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
+    --model=lm.wiki_bert.MLPerfTrainBertDense500B \
+    --logdir=${LOGDIR} --tpu=${TPU_NAME} \
+    --worker_split_size=1024 --ps_replicas=256 \
+    --job=executor_tpu  --disable_tf2=true
+"""
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense500B(MLPerfBertDense1T):
+  BATCH_SIZE = 4096
+
+  NUM_TRANSFORMER_LAYERS = 64
+
+  GATED_GELU = False
+  POSITIONAL_EMBEDDING = True
+  TRAIN_STEPS_PER_LOOP = 20
