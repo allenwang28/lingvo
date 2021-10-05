@@ -171,11 +171,3 @@ py_test(
         # Implicit numpy dependency.
     ],
 )
-
-lingvo_cc_test(
-    name = "ps_utils_test",
-    srcs = ["ps_utils_test.cc"],
-    deps = [
-        ":ps_utils",
-    ],
-)

@@ -45,7 +45,7 @@ function write_action_env_to_bazelrc() {
 
 write_to_bazelrc "build -c opt"
 write_to_bazelrc 'build --cxxopt="-std=c++14"'
-write_to_bazelrc 'build --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=0"'
+write_to_bazelrc 'build --cxxopt="-D_GLIBCXX_USE_CXX14_ABI=1"'
 write_to_bazelrc 'build --auto_output_filter=subpackages'
 write_to_bazelrc 'build --copt="-Wall" --copt="-Wno-sign-compare"'
 write_to_bazelrc 'build --linkopt="-lrt -lm"'
@@ -75,13 +75,10 @@ write_action_env_to_bazelrc "TF_NEED_CUDA" ${TF_NEED_CUDA}
 bazel clean
 bazel build ...
 # Just test the core for the purposes of the pip package.
-bazel test lingvo/core/...
+#bazel test lingvo/core/...
 
 DST_DIR="/tmp/lingvo_pip_pkg_build"
 ./pip_package/build_pip_pkg.sh "$DST_DIR" ${PYTHON_VERSION}
 # Comment the following line if you run this outside of the container.
-if [[ "${PIP_MANYLINUX2010}" == "1" ]]; then
-  find "$DST_DIR" -name "*cp${PYTHON_VERSION}${PYTHON_MINOR_VERSION}*.whl" | xargs -n1 ./third_party/auditwheel.sh repair --plat manylinux2010_x86_64 -w "$DST_DIR"
-fi
 
 rm .bazelrc

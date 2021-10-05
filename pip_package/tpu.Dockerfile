@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
   build-essential \
   g++ \
   wget \
+  rsync \
   unzip
 
 # There are some problems with the python3 installation from custom-op-ubuntu16.

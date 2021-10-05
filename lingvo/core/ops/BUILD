@@ -145,38 +145,6 @@ lingvo_cc_library(
     ],
 )
 
-lingvo_cc_test(
-    name = "record_yielder_test",
-    srcs = ["record_yielder_test.cc"],
-    deps = [
-        ":input_common",
-        ":record",
-        ":yielder_test_helper",
-        # Implicit absl.flags:flag dependency.
-    ],
-)
-
-lingvo_cc_test(
-    name = "weighted_mix_record_yielder_test",
-    srcs = ["weighted_mix_record_yielder_test.cc"],
-    deps = [
-        ":input_common",
-        ":record",
-        ":yielder_test_helper",
-        # Implicit absl.flags:flag dependency.
-    ],
-)
-
-lingvo_cc_test(
-    name = "record_batcher_test",
-    srcs = ["record_batcher_test.cc"],
-    deps = [
-        ":input_common",
-        ":record",
-        # Implicit absl.flags:flag dependency.
-    ],
-)
-
 lingvo_cc_library(
     name = "input_common",
     srcs = ["input_common.cc"],
@@ -186,42 +154,10 @@ lingvo_cc_library(
     ],
 )
 
-lingvo_cc_test(
-    name = "input_common_test",
-    srcs = ["input_common_test.cc"],
-    deps = [
-        ":input_common",
-        ":yielder_test_helper",
-        # Implicit absl.flags:flag dependency.
-    ],
-)
-
-lingvo_cc_test_library(
-    name = "yielder_test_helper",
-    srcs = [
-        "yielder_test_helper.cc",
-    ],
-    hdrs = [
-        "yielder_test_helper.h",
-    ],
-    deps = [
-        ":record",
-        # Implicit absl.flags:flag dependency.
-    ],
-)
-
 lingvo_cc_library(
     name = "text_packing",
     srcs = ["text_packing.cc"],
     hdrs = ["text_packing.h"],
-)
-
-lingvo_cc_test(
-    name = "text_packing_test",
-    srcs = ["text_packing_test.cc"],
-    deps = [
-        ":text_packing",
-    ],
 )
 
 ###################### Op kernel implementations.
@@ -270,14 +206,6 @@ custom_kernel_library(
     deps = [
         ":hyps_proto_cc",
         # Implicit absl.strings dependency.
-    ],
-)
-
-lingvo_cc_test(
-    name = "beam_search_step_op_top_k_test",
-    srcs = ["beam_search_step_op_top_k_test.cc"],
-    deps = [
-        ":beam_search_step_op_kernels",
     ],
 )
 
