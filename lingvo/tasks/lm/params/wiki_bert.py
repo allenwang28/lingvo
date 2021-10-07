@@ -234,8 +234,8 @@ class MLPerfBertDense1TWider(MLPerfBertDense1T):
 
 """
 bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
-    --model=lm.wiki_bert.MLPerfTrainBertDense500B \
-    --logdir=${LOGDIR} --tpu=${TPU_NAME} \
+    --model=lm.wiki_bert.MLPerfBertDense500B \
+    --logdir=${LOGGING_DIR} --tpu=${TPU_NAME} \
     --worker_split_size=1024 --ps_replicas=256 \
     --job=executor_tpu  --disable_tf2=true
 """
