@@ -267,11 +267,6 @@ class MLPerfBertDense175B(MLPerfBertDense1T):
   MODEL_DIM = 12288
   NUM_HEADS = 96
   NUM_TRANSFORMER_LAYERS = 96
->>>>>>> master
-
-  GATED_GELU = False
-  POSITIONAL_EMBEDDING = True
-  TRAIN_STEPS_PER_LOOP = 20
 
 """
 bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
@@ -290,3 +285,28 @@ class MLPerfBertDense500B(MLPerfBertDense1T):
   POSITIONAL_EMBEDDING = True
   TRAIN_STEPS_PER_LOOP = 20
 
+
+"""
+bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
+    --model=lm.wiki_bert.MLPerfBertDense500B2K \
+    --logdir=${LOGGING_DIR} --tpu=${TPU_NAME} \
+    --worker_split_size=2048 --ps_replicas=512 \
+    --job=executor_tpu  --disable_tf2=true
+"""
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense500B2K(MLPerfBertDense1T):
+  VOCAB_SIZE = 30522
+  BATCH_SIZE = 4096
+
+  NUM_TRANSFORMER_LAYERS = 64
+
+  GATED_GELU = False
+  POSITIONAL_EMBEDDING = True
+  TRAIN_STEPS_PER_LOOP = 50
+  TRAIN_EXES_PER_EVAL = 1
+
+  DEVICE_MESH_SHAPE = [256, 8]
+  DEVICE_MESH = np.arange(
+      0, np.product(DEVICE_MESH_SHAPE)).reshape([8,16,16]).transpose([1,2,0]).reshape(DEVICE_MESH_SHAPE)
+  HIDDEN_DIM_RESHAPE_SEGMENTS = 8
+  MODEL_DIM_RESHAPE_SEGMENTS = [8]
