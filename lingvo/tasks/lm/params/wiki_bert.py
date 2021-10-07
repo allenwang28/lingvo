@@ -168,6 +168,32 @@ class MLPerfTrainTemplate(BertTemplate):
     )
     p.train_program.spmd = True
     p.train_executions_per_eval = self.TRAIN_EXES_PER_EVAL
+
+    # For compliance logging.
+    p.ml_perf.benchmark_name = 'bert'
+    p.ml_perf.submission_metadata = {
+        'global_batch_size': self.BATCH_SIZE,
+        'submission_org': 'Google',
+        'submission_platform': 'tpu',
+        'submission_division': 'open',
+        'submission_status': 'research',
+        'submission_benchmark': p.ml_perf.benchmark_name,
+        'submission_model': 'lingvo',
+        'cache_clear': None,
+        'train_samples': 0,
+        'eval_samples': 10000
+    }
+
+    # For BERT, we log the number of examples as the epoch.
+    # epoch_num = global_step / steps_per_epoch
+    # epoch_num = num_examples_trained = global_step * examples_per_step
+    # steps_per_epoch = global_step / (global_step * examples_per_step)
+    # steps_per_epoch = 1 / examples_per_step
+    examples_per_step = self.BATCH_SIZE
+    p.ml_perf.steps_per_epoch = 1 / examples_per_step
+
+    p.ml_perf.decoder_metric_name = 'acc1'
+
     return p
 
 
@@ -232,6 +258,21 @@ class MLPerfBertDense1TWider(MLPerfBertDense1T):
   HIDDEN_DIM = 131072 * 2
   MODEL_DIM = 16384 * 2
 
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense175B(MLPerfBertDense1T):
+  """Large Bert model with 175B parameters on 1024 chips."""
+  BATCH_SIZE = 1024
+  HIDDEN_DIM = 12288 * 4
+  ATTENTION_KEY_VALUE_DIM = 128
+  MODEL_DIM = 12288
+  NUM_HEADS = 96
+  NUM_TRANSFORMER_LAYERS = 96
+>>>>>>> master
+
+  GATED_GELU = False
+  POSITIONAL_EMBEDDING = True
+  TRAIN_STEPS_PER_LOOP = 20
+
 """
 bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
     --model=lm.wiki_bert.MLPerfBertDense500B \
@@ -248,3 +289,4 @@ class MLPerfBertDense500B(MLPerfBertDense1T):
   GATED_GELU = False
   POSITIONAL_EMBEDDING = True
   TRAIN_STEPS_PER_LOOP = 20
+

@@ -423,7 +423,9 @@ class BaseInputGenerator(base_layer.BaseLayer):
           batch = new_batch
 
         self._batch_nm_types = batch[0]
-        tf.logging.info('host_device: %s, batch: %r', host_device, batch)
+        tf.logging.info(
+            'host_device: %s, batch: %r', host_device,
+            py_utils.Transform(lambda x: (x.shape, x.dtype), batch[0]))
         self._per_host_batches.append(batch)
 
         for b in batch:
@@ -435,11 +437,6 @@ class BaseInputGenerator(base_layer.BaseLayer):
           # fails if used.
         shapes = batch[0].Transform(lambda x: x.shape).Flatten()
         dtypes = batch[0].Transform(lambda x: x.dtype).Flatten()
-
-        tf.logging.info('host_device: %s infeed shapes: %r', host_device,
-                        shapes)
-        tf.logging.info('host_device: %s infeed dtypes: %r', host_device,
-                        dtypes)
 
         if p.use_partitioned_infeed_queue:
           device_assignment = py_utils.GetTpuDeviceAssignment(job_name)
@@ -715,7 +712,8 @@ class BaseInputGenerator(base_layer.BaseLayer):
       with tf.device(host_device):
         self._cpu_nm_types = batch[0] if len(batch) == 1 else batch
         tf.logging.info('host_device CPU passthrough types: %s, batch: %r',
-                        host_device, batch)
+                        host_device,
+                        py_utils.Transform(lambda x: (x.shape, x.dtype), batch))
         cpu_dtypes = py_utils.Flatten(
             py_utils.Transform(lambda x: x.dtype, batch))
         # NOTE: we use a large capacity queue under the assumption that the size

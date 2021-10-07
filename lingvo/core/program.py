@@ -77,6 +77,7 @@ class BaseProgram:
     p.Define('write_train_input_stats', False,
              'Whether to write input data stats during training.')
     p.Define('max_metrics', 256, 'Overrides TpuEvalMetrics.max_metrics')
+    p.Define('ml_perf', None, 'MLPerf config')
     return p
 
   def __init__(self,
@@ -369,6 +370,12 @@ class TrainProgram(BaseProgram):
     super().__init__(params, shared_model=shared_model, **kwargs)
     self._step_rate_tracker = summary_utils.StepRateTracker()
     self._program_name = 'TrainProgram'
+    p = self.params
+    if (p.ml_perf is not None and p.ml_perf.benchmark_name is not None and
+        p.ml_perf.steps_per_epoch is not None):
+      self._ml_perf = p.ml_perf
+    else:
+      self._ml_perf = None
 
   def _OutfeedDequeueLoop(self, per_example_tensors, num_loops, num_devices):
     """Process all per-example tensor outfeed data for a TPU sess.run.
@@ -484,8 +491,14 @@ class TrainProgram(BaseProgram):
     with py_utils.OpportunisticVariableReuseScope(True):
       self._model = self._InstantiateTaskModel(self._task_params)
     self._task = self._model.GetTask()
+
+    # In graph mode, `CreateTpuEnqueueOps` builds the relevant infeed ops.
+    # In eager mode, we run it once at the start to initialize
+    # the datasets and iterators before `tf.function` because
+    # `tf.function` does not trace python side effects.
+    # https://www.tensorflow.org/guide/function#executing_python_side_effects
+    self._task.input.CreateTpuEnqueueOps()
     if not py_utils.IsEagerMode():
-      self._task.input.CreateTpuEnqueueOps()
       self._task.input.CreateTpuEmbeddingEnqueueOps()
 
     @tpu_function.on_device_training_loop
@@ -565,6 +578,13 @@ class TrainProgram(BaseProgram):
     if self._ShouldStop(task_global_step):
       return True
 
+    if self._ml_perf:
+      mlp_log.mlperf_print(
+          'block_start', None, metadata={
+              'epoch_num': 1,
+              'first_epoch_num': 1
+          })
+
     if py_utils.IsEagerMode():
       values, outfeeds = self.tpu_ops()
     else:
@@ -611,6 +631,13 @@ class TrainProgram(BaseProgram):
       self._WriteSummaries(
           os.path.basename(self._program_dir), global_step, summaries)
 
+    if self._ml_perf:
+      mlp_log.mlperf_print(
+          'block_stop', None, metadata={
+              'epoch_num': 1,
+              'first_epoch_num': 1
+          })
+
     vizier_early_stop = self._ReportVizierMetrics(
         global_step, self._eval_metrics.ToAverageMetrics())
     return self._ShouldStop(task_global_step) or vizier_early_stop
@@ -631,6 +658,12 @@ class EvalProgram(BaseProgram):
   def __init__(self, params, shared_model=None, **kwargs):
     super().__init__(params, shared_model=shared_model, **kwargs)
     self._program_name = 'EvalProgram'
+    p = self.params
+    if (p.ml_perf is not None and p.ml_perf.benchmark_name is not None and
+        p.ml_perf.steps_per_epoch is not None):
+      self._ml_perf = p.ml_perf
+    else:
+      self._ml_perf = None
 
   def TpuEvalStep(self, *args):
     """Eval a shard of a batch on a single TPU core.
@@ -650,6 +683,43 @@ class EvalProgram(BaseProgram):
         summed_metrics.append(x + y)
       return summed_metrics
 
+  def EvalFunc(self):
+    """Eval function."""
+
+    @tpu_function.on_device_training_loop
+    def TpuEvalLoop():
+      loop_result = tpu_training_loop.repeat(
+          self._steps_per_loop,
+          self.TpuEvalStep,
+          inputs=self._eval_metrics.initial_values,
+          name='eval_loop')
+      # Final metrics are the avg across self._steps_per_loop steps.
+      return self._eval_metrics.FinalizeMetrics(loop_result)
+
+    if py_utils.IsEagerMode():
+      # Run the infeed loop in the same function that runs the training loop
+      # so that infeed enqueue/dequeue ops are created by the same
+      # InfeedQueue.
+      def InfeedBody(i):
+        self._task.input.CreateTpuEnqueueOps()
+        return i + 1
+
+      tf.while_loop(
+          cond=lambda i: i < self._steps_per_loop,
+          body=InfeedBody,
+          loop_vars=[tf.constant(0)])
+
+    # TODO(laigd): investigate how to run compilation only to catch errors
+    # earlier.
+    self._compile_op, batch_parallel_res = tpu.split_compile_and_shard(
+        TpuEvalLoop,
+        num_shards=self.data_parallelism,
+        device_assignment=py_utils.GetTpuDeviceAssignment())
+
+    # Get metric result from a single replica; they are all same here
+    # because TpuEvalMetrics.FinalizeMetrics runs a cross_replica_sum.
+    return [t[0] for t in batch_parallel_res]
+
   def BuildTpuSubgraph(self):
     tf.logging.info(f'EvalProgram {self.params.dataset_name} BuildTpuSubGraph')
     p = self.params
@@ -658,50 +728,20 @@ class EvalProgram(BaseProgram):
       with py_utils.OpportunisticVariableReuseScope(True):
         self._model = self._InstantiateTaskModel(self._task_params)
       self._task = self._model.GetTask()
+      # In graph mode, `CreateTpuEnqueueOps` builds the relevant infeed ops.
+      # In eager mode, we run it once at the start to initialize
+      # the datasets and iterators before `tf.function` because
+      # `tf.function` does not trace python side effects.
+      # https://www.tensorflow.org/guide/function#executing_python_side_effects
+      self._task.input.CreateTpuEnqueueOps()
       if not py_utils.IsEagerMode():
-        self._task.input.CreateTpuEnqueueOps()
         self._task.input.CreateTpuEmbeddingEnqueueOps()
-
-      @tpu_function.on_device_training_loop
-      def TpuEvalLoop():
-        loop_result = tpu_training_loop.repeat(
-            self._steps_per_loop,
-            self.TpuEvalStep,
-            inputs=self._eval_metrics.initial_values,
-            name='eval_loop')
-        # Final metrics are the avg across self._steps_per_loop steps.
-        return self._eval_metrics.FinalizeMetrics(loop_result)
-
-      def EvalFunc():
-        if py_utils.IsEagerMode():
-          # Run the infeed loop in the same function that runs the training loop
-          # so that infeed enqueue/dequeue ops are created by the same
-          # InfeedQueue.
-          def InfeedBody(i):
-            self._task.input.CreateTpuEnqueueOps()
-            return i + 1
-
-          tf.while_loop(
-              cond=lambda i: i < self._steps_per_loop,
-              body=InfeedBody,
-              loop_vars=[tf.constant(0)])
-
-        # TODO(laigd): investigate how to run compilation only to catch errors
-        # earlier.
-        self._compile_op, batch_parallel_res = tpu.split_compile_and_shard(
-            TpuEvalLoop,
-            num_shards=self.data_parallelism,
-            device_assignment=py_utils.GetTpuDeviceAssignment())
-
-        # Get metric result from a single replica; they are all same here
-        # because TpuEvalMetrics.FinalizeMetrics runs a cross_replica_sum.
-        return [t[0] for t in batch_parallel_res]
 
       if py_utils.IsEagerMode():
         self.tpu_ops = (
-            tf.function(autograph=False)(EvalFunc).get_concrete_function())
+            tf.function(autograph=False)(self.EvalFunc).get_concrete_function())
       else:
-        self.tpu_ops = EvalFunc()
+        self.tpu_ops = self.EvalFunc()
 
   def Run(self, sess=None):
     if py_utils.IsEagerMode():
@@ -709,13 +749,24 @@ class EvalProgram(BaseProgram):
     else:
       global_step = sess.run(self._model.global_step)
 
+    mlperf_epoch_num = None
+    if self._ml_perf:
+      mlperf_epoch_num = int(global_step / self._ml_perf.steps_per_epoch)
+      mlp_log.mlperf_print(
+          'eval_start', None, metadata={'epoch_num': mlperf_epoch_num})
+
     if self._task.input.params.resettable:
+      tf.logging.info('Resetting input_generator.')
+      self._task.input.Reset(sess)
       if py_utils.IsEagerMode():
-        # TODO(laigd): reset input generator.
-        raise ValueError('Input_generator resetting is not yet supported.')
-      else:
-        tf.logging.info('Resetting input_generator.')
-        self._task.input.Reset(sess)
+        # In eager mode, after resetting the input generator, we need to
+        # re-trace the tf.function to ensure it uses the new iterator.
+        # See TFDatasetSource::Reset().
+        # TODO(b/202289733): How to reset the iterator in-place to avoid needing
+        # to re-trace tf.function which can be expensive (results in a TPU
+        # recompile each time)?
+        self.tpu_ops = (
+            tf.function(autograph=False)(self.EvalFunc).get_concrete_function())
 
     if py_utils.IsEagerMode():
       values = self.tpu_ops()
@@ -736,6 +787,18 @@ class EvalProgram(BaseProgram):
       self._SummarizeValue(global_step, key, val)
       tf.logging.info((global_step, key, val))
       status_strs.append('%s=%s' % (key, val))
+
+    if self._ml_perf:
+      mlp_log.mlperf_print(
+          'eval_stop', None, metadata={'epoch_num': mlperf_epoch_num})
+      mlperf_metric = self._ml_perf.decoder_metric_name
+      if mlperf_metric in eval_metrics:
+        mlperf_metric_value = eval_metrics[mlperf_metric][0]
+        mlp_log.mlperf_print(
+            'eval_accuracy',
+            mlperf_metric_value,
+            metadata={'epoch_num': mlperf_epoch_num})
+
     self.SetStatusMessage(
         f'Executing eval program on dataset {self.params.dataset_name} '
         f"at step {global_step}\n{','.join(status_strs)}")
@@ -1127,7 +1190,6 @@ class MLPerfTrainDecodeProgram(BaseProgram):
     p.Define('decode_dataset_name', None, '')
     p.Define('train_steps_per_loop', 0, '')
     p.Define('decode_steps_per_loop', 0, '')
-    p.Define('ml_perf', None, 'MLPerf config')
     return p
 
   def __init__(self, params, shared_model=None, **kwargs):
@@ -1348,7 +1410,12 @@ class SimpleProgramSchedule:
     # TODO(blee): Clean these up.
     p.Define('ml_perf', hyperparams.Params(), 'MlPerf configuration.')
     mlp = p.ml_perf
+    mlp.Define('submission_metadata', None,
+               'A dictionary of static submission metadata')
     mlp.Define('benchmark_name', None, 'Benchmark name for compliance log.')
+    mlp.Define('steps_per_epoch', None, 'Number of training steps per epoch.')
+    mlp.Define('decoder_metric_name', None,
+               'Name of the decoder metric to report for compliance log.')
     return p
 
   def __init__(self,
@@ -1371,6 +1438,7 @@ class SimpleProgramSchedule:
       p.train_program.task = p.task_dict[p.train_program.dataset_name]
       p.train_program.num_splits_per_client = p.num_splits_per_client
       p.train_program.task_name = p.task_name
+      p.train_program.ml_perf = p.ml_perf.Copy()
       self.train_program = p.train_program.Instantiate(
           shared_model=shared_model, trial=trial, **kwargs)
       self._programs.append(self.train_program)
@@ -1380,6 +1448,7 @@ class SimpleProgramSchedule:
       eval_program_params.task = p.task_dict[eval_program_params.dataset_name]
       eval_program_params.task_name = p.task_name
       eval_program_params.num_splits_per_client = p.num_splits_per_client
+      eval_program_params.ml_perf = p.ml_perf.Copy()
 
     self.eval_programs = []
     for eval_program in p.eval_programs:
@@ -1392,11 +1461,26 @@ class SimpleProgramSchedule:
               shared_model=shared_model, trial=trial, **kwargs))
     self._programs += self.eval_programs
 
+    if p.ml_perf is not None:
+      self._ml_perf = p.ml_perf.Copy()
+      if self._ml_perf.submission_metadata is not None:
+        for key, value in self._ml_perf.submission_metadata.items():
+          mlp_log.mlperf_print(key, value)
+      mlp_log.mlperf_print('init_start', None)
+      self._ml_perf_run_start = None
+    else:
+      self._ml_perf = None
+
   def Programs(self):
     return self._programs
 
   def Run(self, sess=None, threadpool=None):
     """Execute the program schedule."""
+    if self._ml_perf:
+      if not self._ml_perf_run_start:
+        mlp_log.mlperf_print(key='init_stop', value=None)
+        self._ml_perf_run_start = mlp_log.mlperf_print(
+            key='run_start', value=None)
     p = self.params
     start_time = time.time()
     for _ in range(p.train_executions_per_eval):
@@ -1423,6 +1507,8 @@ class SimpleProgramSchedule:
       self.train_program.Shutdown()
     for eval_program in self.eval_programs:
       eval_program.Shutdown()
+    if self._ml_perf:
+      mlp_log.mlperf_print('run_stop', None, metadata={'status': 'success'})
 
 
 def SimpleProgramScheduleForTask(train_dataset_name,
