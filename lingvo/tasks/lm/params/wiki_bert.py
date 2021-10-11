@@ -258,6 +258,7 @@ class MLPerfBertDense1TWider(MLPerfBertDense1T):
   HIDDEN_DIM = 131072 * 2
   MODEL_DIM = 16384 * 2
 
+
 @model_registry.RegisterSingleTaskModel
 class MLPerfBertDense175B(MLPerfBertDense1T):
   """Large Bert model with 175B parameters on 1024 chips."""
@@ -267,6 +268,30 @@ class MLPerfBertDense175B(MLPerfBertDense1T):
   MODEL_DIM = 12288
   NUM_HEADS = 96
   NUM_TRANSFORMER_LAYERS = 96
+
+"""
+bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
+    --model=lm.wiki_bert.MLPerfBertDense175B2K \
+    --logdir=${LOGGING_DIR} --tpu=${TPU_NAME} \
+    --worker_split_size=2048 --ps_replicas=512 \
+    --job=executor_tpu  --disable_tf2=true
+"""
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense175B2K(MLPerfBertDense1T):
+  """Large Bert model with 175B parameters on 1024 chips."""
+  BATCH_SIZE = 1024
+  HIDDEN_DIM = 12288 * 4
+  ATTENTION_KEY_VALUE_DIM = 128
+  MODEL_DIM = 12288
+  NUM_HEADS = 96
+  NUM_TRANSFORMER_LAYERS = 96
+  TRAIN_EXES_PER_EVAL = 1
+
+  DEVICE_MESH_SHAPE = [256, 8]
+  DEVICE_MESH = np.arange(
+      0, np.product(DEVICE_MESH_SHAPE)).reshape([8,16,16]).transpose([1,2,0]).reshape(DEVICE_MESH_SHAPE)
+  HIDDEN_DIM_RESHAPE_SEGMENTS = 8
+  MODEL_DIM_RESHAPE_SEGMENTS = [8]
 
 """
 bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
