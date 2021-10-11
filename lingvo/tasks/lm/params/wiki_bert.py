@@ -279,7 +279,7 @@ bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
 @model_registry.RegisterSingleTaskModel
 class MLPerfBertDense175B2K(MLPerfBertDense1T):
   """Large Bert model with 175B parameters on 1024 chips."""
-  BATCH_SIZE = 1024
+  BATCH_SIZE = 4096
   HIDDEN_DIM = 12288 * 4
   ATTENTION_KEY_VALUE_DIM = 128
   MODEL_DIM = 12288
