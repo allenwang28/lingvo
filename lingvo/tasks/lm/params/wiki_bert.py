@@ -317,7 +317,7 @@ bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
     --model=lm.wiki_bert.MLPerfBertDense500B2K \
     --logdir=${LOGGING_DIR} --tpu=${TPU_NAME} \
     --worker_split_size=2048 --ps_replicas=512 \
-    --job=executor_tpu  --disable_tf2=true
+    --job=executor_tpu  --disable_tf2=true 2>&1 | tee results.txt
 """
 @model_registry.RegisterSingleTaskModel
 class MLPerfBertDense500B2K(MLPerfBertDense1T):
@@ -328,7 +328,7 @@ class MLPerfBertDense500B2K(MLPerfBertDense1T):
 
   GATED_GELU = False
   POSITIONAL_EMBEDDING = True
-  TRAIN_STEPS_PER_LOOP = 50
+  TRAIN_STEPS_PER_LOOP = 100
   TRAIN_EXES_PER_EVAL = 1
 
   DEVICE_MESH_SHAPE = [256, 8]
