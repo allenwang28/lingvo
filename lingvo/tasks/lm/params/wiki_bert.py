@@ -125,7 +125,7 @@ class BertTemplate(base_model_params.SingleTaskModelParams):
     p.train.lr_schedule = schedule.SqrtDecay.Params().Set(
         warmup_steps=self.WARMUP_STEPS, multiplier=1.0)
 
-    p.train.max_steps = 10000000
+    p.train.max_steps = 31790
     p.train.save_max_to_keep = 40
     p.train.save_keep_checkpoint_every_n_hours = 12
     p.train.async_checkpointing = True
@@ -193,6 +193,7 @@ class MLPerfTrainTemplate(BertTemplate):
     p.ml_perf.steps_per_epoch = 1 / examples_per_step
 
     p.ml_perf.decoder_metric_name = 'acc1'
+    p.ml_perf.decoder_metric_success_threshold = 0.76
 
     return p
 
