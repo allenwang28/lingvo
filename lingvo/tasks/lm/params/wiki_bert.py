@@ -148,7 +148,7 @@ class MLPerfTrainTemplate(BertTemplate):
     p.batch_size = self.BATCH_SIZE
     p.enable_packing = True
     p.shuffle = True
-    p.input_file = 'gs://mlperf_v1_1/bert/train/*'
+    p.input_file = 'gs://mlperf_v1_1/bert/train-1024/*'
     return p
 
   def Test(self):
