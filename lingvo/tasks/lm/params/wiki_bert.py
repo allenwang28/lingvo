@@ -287,6 +287,7 @@ class MLPerfBertDense175B2K(MLPerfBertDense1T):
   NUM_TRANSFORMER_LAYERS = 96
   TRAIN_EXES_PER_EVAL = 1
   POSITIONAL_EMBEDDING = True
+  LABEL_SMOOTHING = 0.1
 
   DEVICE_MESH_SHAPE = [256, 8]
   DEVICE_MESH = np.arange(
@@ -323,6 +324,7 @@ bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
 class MLPerfBertDense500B2K(MLPerfBertDense1T):
   VOCAB_SIZE = 30522
   BATCH_SIZE = 4096
+  LABEL_SMOOTHING = 0.1
 
   NUM_TRANSFORMER_LAYERS = 64
 
