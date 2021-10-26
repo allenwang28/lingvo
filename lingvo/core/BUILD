@@ -1331,7 +1331,6 @@ py_library(
         ":predictor_lib",
         ":py_utils",
         # Implicit absl.flags dependency.
-        # Implicit concurrent.futures dependency.
         "//lingvo:compat",
         # Implicit six dependency.
     ],
@@ -1906,6 +1905,7 @@ py_library(
     srcs = ["tpu_summary.py"],
     srcs_version = "PY3",
     deps = [
+        ":py_utils",
         "//lingvo:compat",
     ],
 )

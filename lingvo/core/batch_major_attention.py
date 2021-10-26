@@ -1819,8 +1819,8 @@ class LocalSelfAttention(MultiHeadedAttention):
     # -> [B, N, U, W, C]
     logits = self._AttenLogits(theta, query_blocks, key_block_context)
 
-    padded_logits = py_utils.ApplyPadding(
-        paddings, logits, GetDtypeMin(logits.dtype), use_select=False)
+    padded_logits = py_utils.ApplyPadding(paddings, logits,
+                                          GetDtypeMin(logits.dtype))
 
     if p.enable_scaling_code_motion:
       # Split the softmax into two parts. Do the 1st part here; the 2nd part
@@ -2444,10 +2444,7 @@ class LocalSelfAttention(MultiHeadedAttention):
 
       # [B, Q, N, S]
       logits = py_utils.ApplyPadding(
-          tf.logical_not(final_masks),
-          logits,
-          GetDtypeMin(logits.dtype),
-          use_select=False)
+          tf.logical_not(final_masks), logits, GetDtypeMin(logits.dtype))
       # [B, Q, N, S]
       posteriors = py_utils.Softmax(
           logits, axis=-1, extra_logit=p.atten_extra_logit)
@@ -4745,6 +4742,13 @@ class StackedTransformerLayers(base_layer.BaseLayer):
         'Apply dropout at this prob at various places. If None, dropout values '
         'in transformer_layer_params_tpl will be used. If set, p.dropout_prob '
         'will override transformer_layer_params_tpl.')
+    p.Define(
+        'stochastic_depth_droppath_prob', None,
+        'The probability of dropping the residual branches (feedforward blocks '
+        'and attention blocks). See Deep Networks with Stochastic Depth: '
+        'https://arxiv.org/pdf/1603.09382.pdf'
+        'Note: the droppath prob is linearly increasing from block 0 to the '
+        'last block with dropout ratio from 0 to targeted ratio.')
     p.Define('add_unnormalized_input', True,
              'If set, uses unnormalized input in the residual add.')
     p.Define(
@@ -4848,6 +4852,10 @@ class StackedTransformerLayers(base_layer.BaseLayer):
         p_ii.tr_atten_tpl.residual_dropout_prob = p.dropout_prob
         p_ii.tr_fflayer_tpl.residual_dropout_prob = p.dropout_prob
         p_ii.tr_fflayer_tpl.relu_dropout_prob = p.dropout_prob
+      if p.stochastic_depth_droppath_prob is not None:
+        ratio = p.stochastic_depth_droppath_prob * ii / (p.num_layers - 1)
+        p_ii.tr_atten_tpl.residual_droppath_prob = ratio
+        p_ii.tr_fflayer_tpl.residual_droppath_prob = ratio
       if p.hidden_dim is not None:
         p_ii.tr_fflayer_tpl.hidden_dim = p.hidden_dim
       p_ii.tr_atten_tpl.add_unnormalized_input = p.add_unnormalized_input

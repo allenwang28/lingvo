@@ -292,7 +292,7 @@ class BaseProgram:
     self._task.input.Initialize(sess)
     self.SetStatusMessage('Init inputs %s done.' % self._program_name)
 
-    if self._compile_op is not None:
+    if not py_utils.IsEagerMode() and self._compile_op is not None:
       self.SetStatusMessage('Compiling %s' % self._program_name)
       result = sess.run(self._compile_op)
       proto = tpu_compilation_result.CompilationResultProto()
@@ -491,15 +491,7 @@ class TrainProgram(BaseProgram):
     with py_utils.OpportunisticVariableReuseScope(True):
       self._model = self._InstantiateTaskModel(self._task_params)
     self._task = self._model.GetTask()
-
-    # In graph mode, `CreateTpuEnqueueOps` builds the relevant infeed ops.
-    # In eager mode, we run it once at the start to initialize
-    # the datasets and iterators before `tf.function` because
-    # `tf.function` does not trace python side effects.
-    # https://www.tensorflow.org/guide/function#executing_python_side_effects
-    self._task.input.CreateTpuEnqueueOps()
-    if not py_utils.IsEagerMode():
-      self._task.input.CreateTpuEmbeddingEnqueueOps()
+    self._task.input.TpuSetup()
 
     @tpu_function.on_device_training_loop
     def TpuTrainLoop():
@@ -556,10 +548,10 @@ class TrainProgram(BaseProgram):
       return _ConstructPostTrainingLoop(metric_values, outfeed)
 
     if py_utils.IsEagerMode():
-      self.tpu_ops = (
+      self.tpu_outs = (
           tf.function(autograph=False)(TrainFunc).get_concrete_function())
     else:
-      self.tpu_ops = TrainFunc()
+      self.tpu_outs = TrainFunc()
 
     # Write model analysis.
     self._model_analysis, self._total_num_params = summary_utils.ModelAnalysis(
@@ -591,13 +583,13 @@ class TrainProgram(BaseProgram):
           })
 
     if py_utils.IsEagerMode():
-      values, outfeeds = self.tpu_ops()
+      values, outfeeds = self.tpu_outs()
       values = py_utils.Transform(lambda x: x.numpy(), values)
       outfeeds = py_utils.Transform(lambda x: x.numpy(), outfeeds)
     else:
       infeed_future = self._infeed_pool.apply_async(
           self._InfeedLoop, args=(sess,))
-      values, outfeeds = sess.run(self.tpu_ops)
+      values, outfeeds = sess.run(self.tpu_outs)
       infeed_future.wait()
 
     self._eval_metrics.PackMetricsValues(values)
@@ -665,6 +657,7 @@ class EvalProgram(BaseProgram):
     if (p.ml_perf is not None and p.ml_perf.benchmark_name is not None and
         p.ml_perf.steps_per_epoch is not None):
       self._ml_perf = p.ml_perf
+      self._run_stop = None
     else:
       self._ml_perf = None
 
@@ -734,20 +727,13 @@ class EvalProgram(BaseProgram):
       with py_utils.OpportunisticVariableReuseScope(True):
         self._model = self._InstantiateTaskModel(self._task_params)
       self._task = self._model.GetTask()
-      # In graph mode, `CreateTpuEnqueueOps` builds the relevant infeed ops.
-      # In eager mode, we run it once at the start to initialize
-      # the datasets and iterators before `tf.function` because
-      # `tf.function` does not trace python side effects.
-      # https://www.tensorflow.org/guide/function#executing_python_side_effects
-      self._task.input.CreateTpuEnqueueOps()
-      if not py_utils.IsEagerMode():
-        self._task.input.CreateTpuEmbeddingEnqueueOps()
+      self._task.input.TpuSetup()
 
       if py_utils.IsEagerMode():
-        self.tpu_ops = (
+        self.tpu_outs = (
             tf.function(autograph=False)(self.EvalFunc).get_concrete_function())
       else:
-        self.tpu_ops = self.EvalFunc()
+        self.tpu_outs = self.EvalFunc()
 
   def Run(self, sess=None):
     if py_utils.IsEagerMode():
@@ -771,16 +757,16 @@ class EvalProgram(BaseProgram):
         # TODO(b/202289733): How to reset the iterator in-place to avoid needing
         # to re-trace tf.function which can be expensive (results in a TPU
         # recompile each time)?
-        self.tpu_ops = (
+        self.tpu_outs = (
             tf.function(autograph=False)(self.EvalFunc).get_concrete_function())
 
     if py_utils.IsEagerMode():
-      values = self.tpu_ops()
+      values = self.tpu_outs()
       values = py_utils.Transform(lambda x: x.numpy(), values)
     else:
       infeed_future = self._infeed_pool.apply_async(
           self._InfeedLoop, args=(sess,))
-      values = sess.run(self.tpu_ops)
+      values = sess.run(self.tpu_outs)
       infeed_future.wait()
 
     status_strs = []
@@ -791,38 +777,82 @@ class EvalProgram(BaseProgram):
       tf.logging.info((global_step, key, val))
       status_strs.append('%s=%s' % (key, val))
 
+    mlperf_done = False
     if self._ml_perf:
-      mlp_log.mlperf_print(
-          'eval_stop', None, metadata={'epoch_num': mlperf_epoch_num})
       mlperf_metric = self._ml_perf.decoder_metric_name
-      if mlperf_metric in eval_metrics:
+      if (mlperf_metric
+          in eval_metrics) and (self._ml_perf.decoder_metric_success_threshold
+                                is not None):
         mlperf_metric_value = eval_metrics[mlperf_metric][0]
         mlp_log.mlperf_print(
             'eval_accuracy',
             mlperf_metric_value,
             metadata={'epoch_num': mlperf_epoch_num})
 
+        mlp_log.mlperf_print(
+            'eval_stop', None, metadata={'epoch_num': mlperf_epoch_num})
+        # Successful ML Perf run if we exceed target accuracy
+        if mlperf_metric_value > self._ml_perf.decoder_metric_success_threshold:
+          tf.logging.info('ml_perf_final_threshold: %f exceeded',
+                          self._ml_perf.decoder_metric_success_threshold)
+          if not self._run_stop:
+            self._run_stop = mlp_log.mlperf_print(
+                'run_stop', None, metadata={'status': 'success'})
+            mlperf_done = True
+
+        # Failed ML Perf run if we fail to reach target accuracy after
+        # predefined number of steps.
+        elif global_step >= self._ml_perf.max_steps_to_train:
+          if not self._run_stop:
+            self._run_stop = mlp_log.mlperf_print(
+                'run_stop', None, metadata={'status': 'abort'})
+            mlperf_done = True
+
     self.SetStatusMessage(
         f'Executing eval program on dataset {self.params.dataset_name} '
         f"at step {global_step}\n{','.join(status_strs)}")
+
     self._summary_writer.flush()
-    return self._ReportVizierMetrics(global_step,
-                                     self._eval_metrics.ToAverageMetrics())
+
+    if self._ml_perf:
+      return mlperf_done
+    else:
+      return self._ReportVizierMetrics(global_step,
+                                       self._eval_metrics.ToAverageMetrics())
 
 
-def _FetchDecodeOut(sess, decode_tensors, cpu_passthrough_tensors):
-  """Fetch decoder outputs, combining with CPU passthrough tensors if needed."""
-  if cpu_passthrough_tensors is not None:
-    decode_out_dict, cpu_pt = sess.run(
-        [decode_tensors, cpu_passthrough_tensors])
-    # Combine cpu_pt into decode_out_dict
-    common_keys = decode_out_dict.keys() & cpu_pt.keys()
-    if common_keys:
-      raise ValueError('CPU passthrough keys already present in '
-                       f'decode_out_dict keys: {common_keys}')
-    decode_out_dict.update(cpu_pt)
+def _FetchDecodeOut(tpu_outs, sess=None):
+  """Fetch decoder outputs, combining with CPU passthrough tensors if needed.
+
+  Args:
+    tpu_outs: A list of decoded tensors and list of cpu passthrough tensors in
+      graph mode, or a callable returning such in eager mode.
+    sess: A session to use in graph mode.
+
+  Returns:
+    A dict containing merged decoded outputs.
+  """
+  if py_utils.IsEagerMode():
+    decode_out_dict, cpu_pt = tpu_outs()
+    decode_out_dict = py_utils.Transform(lambda x: x.numpy(), decode_out_dict)
+    if cpu_pt is None:
+      cpu_pt = {}
+    else:
+      cpu_pt = py_utils.Transform(lambda x: x.numpy(), cpu_pt)
   else:
-    decode_out_dict = sess.run(decode_tensors)
+    decode_tensors, cpu_passthrough_tensors = tpu_outs
+    if cpu_passthrough_tensors is not None:
+      decode_out_dict, cpu_pt = sess.run(
+          [decode_tensors, cpu_passthrough_tensors])
+    else:
+      decode_out_dict = sess.run(decode_tensors)
+      cpu_pt = {}
+  # Combine cpu_pt into decode_out_dict
+  common_keys = decode_out_dict.keys() & cpu_pt.keys()
+  if common_keys:
+    raise ValueError('CPU passthrough keys already present in '
+                     f'decode_out_dict keys: {common_keys}')
+  decode_out_dict.update(cpu_pt)
   return decode_out_dict
 
 
@@ -848,15 +878,8 @@ class DecodeProgram(BaseProgram):
     self._program_name = 'DecodeProgram'
     self._decode_out_dict_lst = []
 
-  def _CompileDecodeFn(self):
+  def DecodeFunc(self):
     """Wrap the DecodeFn with split_compile_and_shard."""
-    with py_utils.OpportunisticVariableReuseScope(True):
-      self._model = self._InstantiateTaskModel(self._task_params)
-    self._task = self._model.GetTask()
-    if not py_utils.IsEagerMode():
-      self._task.input.CreateTpuEnqueueOps()
-      self._task.input.CreateTpuEmbeddingEnqueueOps()
-      self._task.input.CreateCpuPassthroughEnqueueOps()
 
     def _DecodeFn():
       """Decode call to be compiled for TPU."""
@@ -866,14 +889,31 @@ class DecodeProgram(BaseProgram):
       self.decode_nm = py_utils.NestedMap(decode_dict)
       return self.decode_nm.Flatten()
 
+    if py_utils.IsEagerMode():
+      # Run the infeed loop in the same function that runs the training loop
+      # so that infeed enqueue/dequeue ops are created by the same
+      # InfeedQueue.
+      def InfeedBody(i):
+        self._task.input.CreateTpuEnqueueOps()
+        self._task.input.CreateCpuPassthroughEnqueueOps()
+        # Auto control dependency may not support TPU infeed ops, so add the
+        # dependency manually.
+        with tf.control_dependencies(self._task.input.tpu_infeed_op):
+          return i + 1
+
+      tf.while_loop(
+          cond=lambda i: i < self._steps_per_loop,
+          body=InfeedBody,
+          loop_vars=[tf.constant(0)])
+
     self._compile_op, batch_parallel_res = tpu.split_compile_and_shard(
         _DecodeFn,
         num_shards=self.data_parallelism,
         device_assignment=py_utils.GetTpuDeviceAssignment())
 
-    self.cpu_pt = self._task.input.DequeueCpuPassthrough()
-    self.decode_tensors = py_utils.NestedMap(self.decode_nm)
-    self.decode_tensors = self.decode_tensors.Pack(batch_parallel_res)
+    decode_tensors = self.decode_nm.Pack(batch_parallel_res)
+    cpu_pt = self._task.input.DequeueCpuPassthrough()
+    return decode_tensors, cpu_pt
 
   def _DecodeUntilOutOfRangeInfeedLoop(self, sess=None, infeed_step_queue=None):
     """Infeed loop that stops when it runs out of data (OutOfRange error)."""
@@ -909,9 +949,19 @@ class DecodeProgram(BaseProgram):
   def BuildTpuSubgraph(self):
     tf.logging.info(
         f'DecodeProgram {self.params.dataset_name} BuildTpuSubGraph')
-    py_utils.ResetStepSeed()
     with cluster_factory.SetEval(True):
-      self._CompileDecodeFn()
+      py_utils.ResetStepSeed()
+      with py_utils.OpportunisticVariableReuseScope(True):
+        self._model = self._InstantiateTaskModel(self._task_params)
+      self._task = self._model.GetTask()
+      self._task.input.TpuSetup(cpu_passthrough=True)
+
+      if py_utils.IsEagerMode():
+        self.tpu_outs = (
+            tf.function(autograph=False)(
+                self.DecodeFunc).get_concrete_function())
+      else:
+        self.tpu_outs = self.DecodeFunc()
 
   def _DecodeStep(self,
                   sess,
@@ -922,10 +972,10 @@ class DecodeProgram(BaseProgram):
                   postprocess_futures,
                   threadpool=None):
     """Run one iteration of decode."""
-    tf.logging.info('Decoding step %f', step)
+    tf.logging.info(f'Decoding step {step}')
     fetch_start = time.time()
-    decode_out_dict = _FetchDecodeOut(sess, self.decode_tensors, self.cpu_pt)
-    tf.logging.info('Finished TPU decoding on step %f', step)
+    decode_out_dict = _FetchDecodeOut(self.tpu_outs, sess)
+    tf.logging.info(f'Finished TPU decoding on step {step}')
     dec_metrics['decode_secs'].Update(time.time() - fetch_start)
     if self.params.postprocess_all_at_once:
       # Accumulate decode_out_dicts and skip postprocess until the end.
@@ -952,6 +1002,7 @@ class DecodeProgram(BaseProgram):
   def _PostProcessStep(self, idx, decode_out_obj, dec_metrics, global_step,
                        buffered_decode_out):
     """Run postprocess for a single decode step."""
+    tf.logging.info(f'PostProcessStep {idx}')
     post_process_start = time.time()
     decode_out = self._task.PostProcessDecodeOut(decode_out_obj, dec_metrics)
     dec_metrics['postprocess_secs'].Update(time.time() - post_process_start)
@@ -1004,7 +1055,10 @@ class DecodeProgram(BaseProgram):
 
   def Run(self, sess=None, threadpool=None):
     """Setup and execute Decode program."""
-    global_step = sess.run(self._model.global_step)
+    if py_utils.IsEagerMode():
+      global_step = self._model.global_step.numpy()
+    else:
+      global_step = sess.run(self._model.global_step)
     self.SetStatusMessage(
         f'Executing decode program on dataset {self.params.dataset_name} '
         f'at step {global_step}')
@@ -1012,6 +1066,16 @@ class DecodeProgram(BaseProgram):
     if self._task.input.params.resettable:
       tf.logging.info('Resetting input_generator.')
       self._task.input.Reset(sess)
+      if py_utils.IsEagerMode():
+        # In eager mode, after resetting the input generator, we need to
+        # re-trace the tf.function to ensure it uses the new iterator.
+        # See TFDatasetSource::Reset().
+        # TODO(b/202289733): How to reset the iterator in-place to avoid needing
+        # to re-trace tf.function which can be expensive (results in a TPU
+        # recompile each time)?
+        self.tpu_outs = (
+            tf.function(autograph=False)(
+                self.DecodeFunc).get_concrete_function())
 
     # The infeed_step_queue synchronizes the _InfeedLoop with the Decoding loop
     # (that runs _DecodeStep). As an input batch is successfully fed through
@@ -1021,6 +1085,9 @@ class DecodeProgram(BaseProgram):
     # reached (OutOfRangeError), _InfeedLoop inserts a special value of "-1",
     # which will terminate the Decode loop once it's consumed from the queue.
     if self.params.decode_until_out_of_range:
+      if py_utils.IsEagerMode():
+        raise NotImplementedError(
+            'p.decode_until_out_of_range is not supported in eager mode.')
       infeed_step_queue = queue.Queue()
       infeed_future = self._infeed_pool.apply_async(
           self._DecodeUntilOutOfRangeInfeedLoop,
@@ -1029,8 +1096,9 @@ class DecodeProgram(BaseProgram):
               infeed_step_queue,
           ))
     else:
-      infeed_future = self._infeed_pool.apply_async(
-          self._InfeedLoop, args=(sess,))
+      if not py_utils.IsEagerMode():
+        infeed_future = self._infeed_pool.apply_async(
+            self._InfeedLoop, args=(sess,))
 
     dec_metrics = self._task.CreateDecoderMetrics()
     dec_metrics.update({
@@ -1061,7 +1129,8 @@ class DecodeProgram(BaseProgram):
       self._RunPostProcess(threadpool, step, self._decode_out_dict_lst,
                            dec_metrics, global_step, buffered_decode_out,
                            postprocess_futures)
-    infeed_future.wait()
+    if not py_utils.IsEagerMode():
+      infeed_future.wait()
 
     if threadpool:
       # Async. TPU+host processing is done and can move on to Train.
@@ -1096,15 +1165,8 @@ class ExperimentalDecodeProgram(DecodeProgram):
     p.num_threads = 2
     return p
 
-  def _CompileDecodeLoop(self):
+  def DecodeFunc(self):
     """Wrap the DecodeLoop with split_compile_and_shard."""
-    device_assignment = py_utils.GetTpuDeviceAssignment()
-    with py_utils.OpportunisticVariableReuseScope(True):
-      self._model = self._InstantiateTaskModel(self._task_params)
-    self._task = self._model.GetTask()
-    self._task.input.CreateTpuEnqueueOps()
-    self._task.input.CreateCpuPassthroughEnqueueOps()
-    self._task.input.CreateTpuEmbeddingEnqueueOps()
 
     def _DecodeStep():
       """Decode call to be compiled for TPU."""
@@ -1122,34 +1184,42 @@ class ExperimentalDecodeProgram(DecodeProgram):
     self._compile_op, self.decode_loop = tpu.split_compile_and_shard(
         DecodeLoopFn,
         num_shards=self.data_parallelism,
-        device_assignment=device_assignment)
+        device_assignment=py_utils.GetTpuDeviceAssignment())
 
-    # Get a list of outfeed ops.
-    self.decode_tensors = self._OutfeedDequeue()
-    # Pack the list of outfeed ops with structure in self.decode_nm.
-    self.decode_tensors = tf.nest.pack_sequence_as(self.decode_nm,
-                                                   self.decode_tensors)
-    self.cpu_pt = self._task.input.DequeueCpuPassthrough()
+    # Pack the list of outfeed ops with structure in decode_nm.
+    decode_tensors = self.decode_nm.Pack(self._OutfeedDequeue(self.decode_nm))
+    cpu_pt = self._task.input.DequeueCpuPassthrough()
+    return decode_tensors, cpu_pt
 
   def BuildTpuSubgraph(self):
+    p = self.params
     tf.logging.info(
-        f'DecodeProgram {self.params.dataset_name} BuildTpuSubGraph')
-    py_utils.ResetStepSeed()
-    self.spmd = (
-        self.params.spmd or
-        self._task_params.input.use_partitioned_infeed_queue)
+        f'ExperimentalDecodeProgram {p.dataset_name} BuildTpuSubgraph')
+    if py_utils.IsEagerMode():
+      raise NotImplementedError(
+          'ExperimentalDecodeProgram is not supported in eager mode.')
+    self.spmd = (p.spmd or self._task_params.input.use_partitioned_infeed_queue)
     with cluster_factory.SetEval(True):
-      self._CompileDecodeLoop()
+      py_utils.ResetStepSeed()
+      with py_utils.OpportunisticVariableReuseScope(True):
+        self._model = self._InstantiateTaskModel(self._task_params)
+      self._task = self._model.GetTask()
+      self._task.input.TpuSetup(cpu_passthrough=True)
 
-  def _OutfeedDequeue(self):
+      self.tpu_outs = self.DecodeFunc()
+
+  def _OutfeedDequeue(self, decode_nm):
     """Collect outfeed dequeue from all devices.
+
+    Args:
+      decode_nm: A NestedMap containing decoded tensors.
 
     Returns:
       A list of tensors corresponding to stacked decoded outputs. The decoder
       outputs are stacked on the first dimension (usually corresponds to
       batch size).
     """
-    num_decode_tensors = len(self.decode_nm.Flatten())
+    num_decode_tensors = len(decode_nm.Flatten())
     outfeed_ops = [[]] * num_decode_tensors
     device_assignment = py_utils.GetTpuDeviceAssignment()
     assert device_assignment
@@ -1159,8 +1229,8 @@ class ExperimentalDecodeProgram(DecodeProgram):
       for core in range(num_cores_per_replica):
         with tf.device(device_assignment.host_device(replica, core)):
           outfeeds_per_core = tpu_ops.outfeed_dequeue_tuple(
-              dtypes=[x.dtype for x in self.decode_nm.Flatten()],
-              shapes=[x.shape for x in self.decode_nm.Flatten()],
+              dtypes=[x.dtype for x in decode_nm.Flatten()],
+              shapes=[x.shape for x in decode_nm.Flatten()],
               device_ordinal=device_assignment.tpu_ordinal(replica, core))
           for idx_outfeed, out_feed in enumerate(outfeeds_per_core):
             outfeed_ops[idx_outfeed] = outfeed_ops[idx_outfeed] + [out_feed]
@@ -1187,7 +1257,7 @@ class ExperimentalDecodeProgram(DecodeProgram):
     dec_metrics = self._task.CreateDecoderMetrics()
     start_time = time.time()
     for _ in range(self._steps_per_loop):
-      decode_out_dict = _FetchDecodeOut(sess, self.decode_tensors, self.cpu_pt)
+      decode_out_dict = _FetchDecodeOut(self.tpu_outs, sess)
       self._task.PostProcessDecodeOut(decode_out_dict, dec_metrics)
     decode_future.wait()
     infeed_future.wait()
@@ -1220,6 +1290,9 @@ class MLPerfTrainDecodeProgram(BaseProgram):
 
   def __init__(self, params, shared_model=None, **kwargs):
     super().__init__(params, shared_model=shared_model, **kwargs)
+    if py_utils.IsEagerMode():
+      raise NotImplementedError(
+          'MLPerfTrainDecodeProgram is not supported in eager mode.')
     p = self.params
     if p.ml_perf is not None and p.ml_perf.benchmark_name is not None:
       self._ml_perf_log = True
@@ -1259,7 +1332,7 @@ class MLPerfTrainDecodeProgram(BaseProgram):
     with py_utils.OpportunisticVariableReuseScope(True):
       self._train_model = self._train_task_params.Instantiate()
     self._train_task = self._train_model.GetTask()
-    self._train_task.input.CreateTpuEnqueueOps()
+    self._train_task.input.TpuSetup()
     self._model = self._train_model
 
     def TpuTrainStep():
@@ -1287,8 +1360,7 @@ class MLPerfTrainDecodeProgram(BaseProgram):
     with py_utils.OpportunisticVariableReuseScope(True):
       self._decode_model = self._InstantiateTaskModel(self._decode_task_params)
     self._decode_task = self._decode_model.GetTask()
-    self._decode_task.input.CreateTpuEnqueueOps()
-    self._decode_task.input.CreateCpuPassthroughEnqueueOps()
+    self._decode_task.input.TpuSetup(cpu_passthrough=True)
 
     def _DecodeFn():
       """Decode call to be compiled for TPU."""
@@ -1308,9 +1380,9 @@ class MLPerfTrainDecodeProgram(BaseProgram):
         num_shards=self.data_parallelism,
         device_assignment=py_utils.GetTpuDeviceAssignment())
 
-    self.decode_tensors = py_utils.NestedMap(self.decode_nm)
-    self.decode_tensors = self.decode_tensors.Pack(batch_parallel_res)
-    self.cpu_pt = self._decode_task.input.DequeueCpuPassthrough()
+    decode_tensors = self.decode_nm.Pack(batch_parallel_res)
+    cpu_pt = self._decode_task.input.DequeueCpuPassthrough()
+    self.tpu_outs = (decode_tensors, cpu_pt)
 
   def _InfeedLoop(self, sess=None):
     if py_utils.IsEagerMode():
@@ -1338,7 +1410,7 @@ class MLPerfTrainDecodeProgram(BaseProgram):
       raise
 
   def _TrainAndDecode(self, sess=None):
-    decode_out_dict = _FetchDecodeOut(sess, self.decode_tensors, self.cpu_pt)
+    decode_out_dict = _FetchDecodeOut(self.tpu_outs, sess)
     self._decode_task.PostProcessDecodeOut(decode_out_dict, self.dec_metrics)
 
   def Run(self, sess=None):
@@ -1387,6 +1459,8 @@ class MLPerfTrainDecodeProgram(BaseProgram):
       mlperf_metric_value = float(self.dec_metrics[mlperf_metric].value)
       mlp_log.mlperf_print(
           'eval_accuracy', mlperf_metric_value, metadata={'epoch_num': epoch})
+
+      # Successful ML Perf run if we exceed target accuracy
       if mlperf_metric_value > self._ml_perf.decoder_metric_success_threshold:
         tf.logging.info('ml_perf_final_threshold: %f exceeded',
                         self._ml_perf.decoder_metric_success_threshold)
@@ -1396,6 +1470,17 @@ class MLPerfTrainDecodeProgram(BaseProgram):
           self.SetStatusMessage('MLPerf run_time: %.2f' %
                                 (self._run_stop - self._run_start))
           return True
+
+      # Failed ML Perf run if we fail to reach target accuracy after
+      # predefined number of steps.
+      elif global_step >= self._ml_perf.max_steps_to_train:
+        if not self._run_stop:
+          self._run_stop = mlp_log.mlperf_print(
+              'run_stop', None, metadata={'status': 'abort'})
+          self.SetStatusMessage('MLPerf run_time: %.2f' %
+                                (self._run_stop - self._run_start))
+          return True
+
     return False
 
 
@@ -1442,6 +1527,10 @@ class SimpleProgramSchedule:
     mlp.Define('steps_per_epoch', None, 'Number of training steps per epoch.')
     mlp.Define('decoder_metric_name', None,
                'Name of the decoder metric to report for compliance log.')
+    mlp.Define('decoder_metric_success_threshold', None,
+               'Benchmark run must exceed this value to succeed.')
+    mlp.Define('max_steps_to_train', None,
+               'Maximum number of steps to reach target accuracy')
     return p
 
   def __init__(self,
@@ -1481,10 +1570,6 @@ class SimpleProgramSchedule:
 
     self.eval_programs = []
     for eval_program in p.eval_programs:
-      if py_utils.IsEagerMode() and issubclass(
-          eval_program.cls, (DecodeProgram, ExperimentalDecodeProgram)):
-        # TODO(jonathanasdf): Support DecodeProgram in eager mode.
-        continue
       self.eval_programs.append(
           eval_program.Instantiate(
               shared_model=shared_model, trial=trial, **kwargs))
@@ -1519,16 +1604,32 @@ class SimpleProgramSchedule:
     train_finish_time = time.time()
     train_time_in_secs = train_finish_time - start_time
     tf.logging.info('Train took %f seconds.', train_time_in_secs)
+
+    # Return when no more evals are needed so we can have an exit
+    # for ML Perf
+    evals_done = False
     for eval_program in self.eval_programs:
-      if p.async_postprocess and isinstance(eval_program, DecodeProgram):
-        # For now, Post-process is only in Decode, other Eval programs do not
-        # take or use threadpool.
-        eval_program.Run(sess, threadpool)
+      tf.logging.info(p.ml_perf)
+      tf.logging.info(self._ml_perf)
+      if self._ml_perf:
+        one_eval_done = None
+        if p.async_postprocess and isinstance(eval_program, DecodeProgram):
+          # For now, Post-process is only in Decode, other Eval programs do not
+          # take or use threadpool.
+          one_eval_done = eval_program.Run(sess, threadpool)
+        else:
+          one_eval_done = eval_program.Run(sess)
+        if one_eval_done is not None:
+          evals_done |= one_eval_done
       else:
-        eval_program.Run(sess)
+        if p.async_postprocess and isinstance(eval_program, DecodeProgram):
+          eval_program.Run(sess, threadpool)
+        else:
+          eval_program.Run(sess)
+
     eval_time_in_secs = time.time() - train_finish_time
     tf.logging.info('Eval took %f seconds.', eval_time_in_secs)
-    should_exit = p.train_executions_per_eval == 0
+    should_exit = (p.train_executions_per_eval == 0) or evals_done
     return should_exit, train_time_in_secs, eval_time_in_secs
 
   def Shutdown(self):
@@ -1536,8 +1637,6 @@ class SimpleProgramSchedule:
       self.train_program.Shutdown()
     for eval_program in self.eval_programs:
       eval_program.Shutdown()
-    if self._ml_perf:
-      mlp_log.mlperf_print('run_stop', None, metadata={'status': 'success'})
 
 
 def _CreateProgramParams(cls, program_name, dataset_name, steps_per_loop):
@@ -1676,7 +1775,7 @@ def _SetDecodeStepsPerLoop(decode_program, steps_per_loop):
 def _ClearSpecifiedProgram(program_list, program_cls_to_clear):
   ret_programs = []
   for program in program_list:
-    if not isinstance(program.cls, program_cls_to_clear):
+    if not issubclass(program.cls, program_cls_to_clear):
       ret_programs.append(program)
   return ret_programs
 
@@ -1717,15 +1816,15 @@ def UpdateProgramSchedule(ps_params, dataset_list, train_executions_per_eval,
     default_eval_steps_per_loop = 0
     default_decode_steps_per_loop = 0
     for eval_program in ps_params.eval_programs:
-      if isinstance(eval_program.cls, EvalProgram):
+      if issubclass(eval_program.cls, EvalProgram):
         default_eval_steps_per_loop = eval_program.steps_per_loop
-      elif isinstance(eval_program.cls, DecodeProgram):
+      elif issubclass(eval_program.cls, DecodeProgram):
         default_decode_steps_per_loop = _GetDecodeStepsPerLoop(eval_program)
       if eval_program.dataset_name in ds_dict:
         eval_programs.append(eval_program)
-        if isinstance(eval_program.cls, EvalProgram):
+        if issubclass(eval_program.cls, EvalProgram):
           ds_dict[eval_program.dataset_name]['eval_exist'] = True
-        elif isinstance(eval_program.cls, DecodeProgram):
+        elif issubclass(eval_program.cls, DecodeProgram):
           ds_dict[eval_program.dataset_name]['decode_exist'] = True
 
     for dataset_name, exists in ds_dict.items():
@@ -1748,7 +1847,7 @@ def UpdateProgramSchedule(ps_params, dataset_list, train_executions_per_eval,
                                                        EvalProgram)
     else:
       for eval_program in ps_params.eval_programs:
-        if isinstance(eval_program.cls, EvalProgram):
+        if issubclass(eval_program.cls, EvalProgram):
           eval_program.steps_per_loop = eval_steps_per_loop
 
   if decode_steps_per_loop is not None:
@@ -1757,7 +1856,7 @@ def UpdateProgramSchedule(ps_params, dataset_list, train_executions_per_eval,
                                                        DecodeProgram)
     else:
       for eval_program in ps_params.eval_programs:
-        if isinstance(eval_program.cls, DecodeProgram):
+        if issubclass(eval_program.cls, DecodeProgram):
           _SetDecodeStepsPerLoop(eval_program, decode_steps_per_loop)
 
   return ps_params
@@ -1787,6 +1886,8 @@ class MLPerfProgramSchedule:
                'Name of the decoder metric to report for compliance log.')
     mlp.Define('decoder_metric_success_threshold', None,
                'Benchmark run must exceed this value to succeed.')
+    mlp.Define('max_steps_to_train', None,
+               'Maximum number of steps to reach target accuracy')
     mlp.Define('steps_per_epoch', None, 'Number of training steps per epoch.')
     mlp.Define('global_batch_size', None, 'Global batch size.')
     mlp.Define('max_sequence_length', None, 'Maximum sequence length.')

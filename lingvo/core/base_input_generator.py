@@ -370,7 +370,15 @@ class BaseInputGenerator(base_layer.BaseLayer):
       raise ValueError(
           f'Configuration mismatch, number of infeed hosts {num_infeed_hosts} '
           f'does not match available devices {host_devices}.')
-    for task_id in range(num_infeed_hosts):
+    if p.use_per_host_infeed:
+      task_ids = list(range(num_infeed_hosts))
+    elif self.do_eval:
+      # Run eval input generation on the last device
+      task_ids = [len(host_devices) - 1]
+    else:
+      # Run train input generation on the first device
+      task_ids = [0]
+    for task_id in task_ids:
       host_device = host_devices[task_id]
       if cpu_passthrough_keys and (
           '/task:{}/device:CPU:0'.format(task_id) not in host_device):
@@ -657,6 +665,23 @@ class BaseInputGenerator(base_layer.BaseLayer):
           enqueue_data[i][key] = tpu_embedding_lib.EnqueueData(
               embedding_indices, sample_indices)
     return enqueue_data
+
+  def TpuSetup(self, cpu_passthrough=False):
+    """Set up the input pipeline for TPU."""
+    if py_utils.IsEagerMode():
+      # In eager mode, we run CreateTpuEnqueueOps once at the start to
+      # initialize the datasets and iterators before `tf.function` because
+      # `tf.function` does not trace python side effects.
+      # https://www.tensorflow.org/guide/function#executing_python_side_effects
+      self.CreateTpuEnqueueOps()
+      if cpu_passthrough:
+        self.CreateCpuPassthroughEnqueueOps()
+    else:
+      # In graph mode, the calls create ops but don't execute them.
+      self.CreateTpuEnqueueOps()
+      if cpu_passthrough:
+        self.CreateCpuPassthroughEnqueueOps()
+      self.CreateTpuEmbeddingEnqueueOps()
 
   def PreprocessTpuEmbeddingInputBatch(self, input_batch):
     """Hook to manipulate the TPU embedding input batch.

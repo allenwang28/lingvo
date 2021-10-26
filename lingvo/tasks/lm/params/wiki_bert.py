@@ -174,13 +174,13 @@ class MLPerfTrainTemplate(BertTemplate):
     p.ml_perf.submission_metadata = {
         'global_batch_size': self.BATCH_SIZE,
         'submission_org': 'Google',
-        'submission_platform': 'tpu',
+        'submission_platform': 'tpu-v4-4096',
         'submission_division': 'open',
-        'submission_status': 'research',
+        'submission_status': 'cloud',
         'submission_benchmark': p.ml_perf.benchmark_name,
         'submission_model': 'lingvo',
         'cache_clear': None,
-        'train_samples': 0,
+        'train_samples': 156725653,
         'eval_samples': 10000
     }
 
@@ -193,7 +193,12 @@ class MLPerfTrainTemplate(BertTemplate):
     p.ml_perf.steps_per_epoch = 1 / examples_per_step
 
     p.ml_perf.decoder_metric_name = 'acc1'
+<<<<<<< HEAD
     #p.ml_perf.decoder_metric_success_threshold = 0.76
+=======
+    p.ml_perf.decoder_metric_success_threshold = 0.6
+    p.ml_perf.max_steps_to_train = 31790
+>>>>>>> upstream/master
 
     return p
 
@@ -270,6 +275,7 @@ class MLPerfBertDense175B(MLPerfBertDense1T):
   NUM_HEADS = 96
   NUM_TRANSFORMER_LAYERS = 96
 
+<<<<<<< HEAD
 """
 bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
     --model=lm.wiki_bert.MLPerfBertDense175B2K \
@@ -334,10 +340,13 @@ class MLPerfBertDense500B(MLPerfBertDense1T):
   NUM_TRANSFORMER_LAYERS = 64
 
   GATED_GELU = False
+=======
+>>>>>>> upstream/master
   POSITIONAL_EMBEDDING = True
   TRAIN_STEPS_PER_LOOP = 20
 
 
+<<<<<<< HEAD
 """
 bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
     --model=lm.wiki_bert.MLPerfBertDense500B2K \
@@ -364,3 +373,29 @@ class MLPerfBertDense500B2K(MLPerfBertDense1T):
       0, np.product(DEVICE_MESH_SHAPE)).reshape([8,16,16]).transpose([1,2,0]).reshape(DEVICE_MESH_SHAPE)
   HIDDEN_DIM_RESHAPE_SEGMENTS = 8
   MODEL_DIM_RESHAPE_SEGMENTS = [8]
+=======
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense500B(MLPerfBertDense1T):
+  """Large Bert model with 481B parameters on 1024 chips."""
+  VOCAB_SIZE = 30522
+  BATCH_SIZE = 4096
+
+  NUM_TRANSFORMER_LAYERS = 64
+  LABEL_SMOOTHING = 0.1
+
+  POSITIONAL_EMBEDDING = True
+  REMOVE_MASK = True
+  TRAIN_STEPS_PER_LOOP = 100
+  TRAIN_EXES_PER_EVAL = 1
+
+
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense500B2K(MLPerfBertDense500B):
+  """Large Bert model with 481B parameters on 2048 chips."""
+  DEVICE_MESH_SHAPE = [256, 8]
+  DEVICE_MESH = np.arange(0, np.product(DEVICE_MESH_SHAPE)).reshape(
+      [8, 16, 16]).transpose([1, 2, 0]).reshape(DEVICE_MESH_SHAPE)
+
+  HIDDEN_DIM_RESHAPE_SEGMENTS = 8
+  MODEL_DIM_RESHAPE_SEGMENTS = [8]
+>>>>>>> upstream/master

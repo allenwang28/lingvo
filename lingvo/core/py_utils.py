@@ -4002,7 +4002,7 @@ def PadSequenceTo(xs, padding, length, pad_val):
     return tuple(res), padding
 
 
-def ApplyPadding(padding, x, padded=None, use_select=True):
+def ApplyPadding(padding, x, padded=None, use_select=True, ensure_shape=True):
   """Applies padding to a tensor.
 
   This is preferable to using arithmetic means for masking out padded values
@@ -4030,6 +4030,7 @@ def ApplyPadding(padding, x, padded=None, use_select=True):
       (True/default) or arithmetically (False). Some platforms have a
       sensitivity to one or the other and this is used to work around such
       issues.
+    ensure_shape: If true, ensures the shape of the result is the same as of x.
 
   Returns:
     A tensor with the same shape as x with padded values masked.
@@ -4047,12 +4048,13 @@ def ApplyPadding(padding, x, padded=None, use_select=True):
     if padding.dtype != tf.bool:
       padding = padding > tf.zeros([], padding.dtype)
     result = tf.where_v2(padding, padded, x)
-    return tf.ensure_shape(result, x.shape)
   else:
     result = x * tf.cast(1.0 - tf.cast(padding, tf.float32), x.dtype)
     if padded is not None:
       result += padded * tf.cast(padding, padded.dtype)
-    return result
+  if ensure_shape:
+    result = tf.ensure_shape(result, x.shape)
+  return result
 
 
 def LengthsFromPaddings(paddings):
@@ -4270,6 +4272,32 @@ def ShiftLeft(tensor, shift_size, pad_val=0, axis=1):
     begin = tf.scatter_nd([[axis]], [shift_size], [rank])
     return PadSequenceDimension(
         tf.slice(tensor, begin, size=[-1] * rank), time, pad_val, axis=axis)
+
+
+def CreateIdsAndLabels(ids, paddings, sos_id=1, eos_id=2):
+  """Creates ids and labels to be used as decoder targets.
+
+  Args:
+    ids: int Tensor of shape [batch, maxlen], without sos or eos.
+    paddings: float Tensor of shape [batch, maxlen].
+    sos_id: ID for the sos special token.
+    eos_id: ID for the eos special token.
+
+  Returns:
+    A NestedMap with:
+     - ids: int Tensor of shape [batch, maxlen + 1], with sos prepended.
+     - labels: int Tensor of shape [batch, maxlen + 1], with eos appended.
+     - paddings: float Tensor of shape [batch, maxlen + 1].
+     - weights: float Tensor of shape [batch, maxlen + 1].
+  """
+  ids = tf.where(
+      tf.equal(paddings, 0.0), ids, tf.broadcast_to([[eos_id]], GetShape(ids)))
+  targets = NestedMap()
+  targets.ids = tf.pad(ids, [[0, 0], [1, 0]], constant_values=sos_id)
+  targets.labels = tf.pad(ids, [[0, 0], [0, 1]], constant_values=eos_id)
+  targets.paddings = tf.pad(paddings, [[0, 0], [1, 0]])
+  targets.weights = 1.0 - targets.paddings
+  return targets
 
 
 def Retry(*args, **kwargs):
