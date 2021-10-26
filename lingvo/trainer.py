@@ -1640,8 +1640,8 @@ class RunnerManager:
     tf.logging.set_verbosity(tf.logging.INFO)
     tf.logging.info('tf_api_version: %s', tf.summarize_tf2_status())
 
-    c = Client()
-    c.configure_tpu_version(tf.__version__, restart_type='always')
+    #c = Client()
+    #c.configure_tpu_version(tf.__version__, restart_type='always')
 
     if FLAGS.mode == 'inspect_params':
       self.InspectParams()

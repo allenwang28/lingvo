@@ -319,9 +319,11 @@ class MLPerfBertDense13B32x32(MLPerfBertDense1T):
   REMOVE_MASK = True
   TRAIN_STEPS_PER_LOOP = 100
 
+  """
   DEVICE_MESH_SHAPE = [64, 32]
   DEVICE_MESH = np.reshape(
       np.arange(0, np.product(DEVICE_MESH_SHAPE)), [32, 64]).transpose()
+  """
 
   HIDDEN_DIM_RESHAPE_SEGMENTS = 8
   MODEL_DIM_RESHAPE_SEGMENTS = [8]
