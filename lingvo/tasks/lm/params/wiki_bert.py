@@ -299,7 +299,7 @@ class MLPerfBertDense175B2K(MLPerfBertDense1T):
   MODEL_DIM_RESHAPE_SEGMENTS = [8]
 
 @model_registry.RegisterSingleTaskModel
-class MLPerfBertDense175B32x32(MLPerfBertDense1T):
+class MLPerfBertDense13B32x32(MLPerfBertDense1T):
   """Large Bert model with 175B parameters on 1024 chips."""
   BATCH_SIZE = 4096
   HIDDEN_DIM = 5120 * 4
