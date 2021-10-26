@@ -297,6 +297,27 @@ class MLPerfBertDense175B2K(MLPerfBertDense1T):
   HIDDEN_DIM_RESHAPE_SEGMENTS = 8
   MODEL_DIM_RESHAPE_SEGMENTS = [8]
 
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense175B32x32(MLPerfBertDense1T):
+  """Large Bert model with 175B parameters on 1024 chips."""
+  BATCH_SIZE = 4096
+  HIDDEN_DIM = 12288 * 4
+  ATTENTION_KEY_VALUE_DIM = 128
+  MODEL_DIM = 12288
+  NUM_HEADS = 96
+  NUM_TRANSFORMER_LAYERS = 96
+  TRAIN_EXES_PER_EVAL = 1
+  POSITIONAL_EMBEDDING = True
+  LABEL_SMOOTHING = 0.1
+  REMOVE_MASK = True
+
+  DEVICE_MESH_SHAPE = [64, 32]
+  DEVICE_MESH = np.reshape(
+      np.arange(0, np.product(DEVICE_MESH_SHAPE)), [32, 64]).transpose()
+
+  HIDDEN_DIM_RESHAPE_SEGMENTS = 8
+  MODEL_DIM_RESHAPE_SEGMENTS = [8]
+
 """
 bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
     --model=lm.wiki_bert.MLPerfBertDense500B \
