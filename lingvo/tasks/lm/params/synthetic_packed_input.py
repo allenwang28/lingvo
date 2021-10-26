@@ -249,6 +249,12 @@ class DenseLm175B32x32(DenseLm128B16x16):
   DEVICE_MESH = np.reshape(
       np.arange(0, np.product(DEVICE_MESH_SHAPE)), [32, 64]).transpose()
 
+@model_registry.RegisterSingleTaskModel
+class DenseLMLG13B(DenseLm175B32x32):
+  MODEL_DIM = 5120
+  HIDDEN_DIM = 5120 * 4
+  NUM_HEADS = 40
+  NUM_TRANSFORMER_LAYERS = 40
 
 @model_registry.RegisterSingleTaskModel
 class DenseLm175B8x8Decode2D(DenseLm175B32x32):
