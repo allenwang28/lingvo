@@ -307,7 +307,7 @@ class MLPerfBertDense13B32x32(MLPerfBertDense1T):
   MODEL_DIM = 5120
   #MODEL_DIM = 12288 * 4
   ATTENTION_KEY_VALUE_DIM = 128
-  GATED_GLU = False
+  GATED_GELU = False
   NUM_HEADS = 40
   #NUM_HEADS = 96
   NUM_TRANSFORMER_LAYERS = 40
@@ -325,6 +325,13 @@ class MLPerfBertDense13B32x32(MLPerfBertDense1T):
 
   HIDDEN_DIM_RESHAPE_SEGMENTS = 8
   MODEL_DIM_RESHAPE_SEGMENTS = [8]
+
+
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense13B32x32SingleStep(MLPerfBertDense1T):
+  TRAIN_STEPS_PER_LOOP = 1
+  TRAIN_EXES_PER_EVAL = 4000
+
 
 """
 bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
