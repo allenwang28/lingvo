@@ -250,6 +250,13 @@ class DenseLm175B32x32(DenseLm128B16x16):
       np.arange(0, np.product(DEVICE_MESH_SHAPE)), [32, 64]).transpose()
 
 @model_registry.RegisterSingleTaskModel
+class DenseLm175B32x32Transposed(DenseLm175B32x32):
+  """175B params LM model with transposed 2D split on v3-2048."""
+  DEVICE_MESH_SHAPE = [32, 64]
+  DEVICE_MESH = np.reshape(
+      np.arange(0, np.product(DEVICE_MESH_SHAPE)), DEVICE_MESH_SHAPE)
+
+@model_registry.RegisterSingleTaskModel
 class DenseLMLG13B(DenseLm175B32x32):
   MODEL_DIM = 5120
   HIDDEN_DIM = 5120 * 4
