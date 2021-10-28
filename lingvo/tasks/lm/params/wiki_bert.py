@@ -148,7 +148,7 @@ class MLPerfTrainTemplate(BertTemplate):
     p.resettable = True
     p.batch_size = self.BATCH_SIZE
     p.enable_packing = True
-    p.shuffle = True
+    p.shuffle = False
     p.input_file = 'gs://juneoh-tpu-sandbox-euw4/bert/train-1024/*'
     return p
 
