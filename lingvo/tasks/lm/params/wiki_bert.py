@@ -400,3 +400,11 @@ class MLPerfBertDense13B16x32SingleStep(MLPerfBertDense13B32x32SingleStep):
   device_mesh =  np.reshape(
         np.arange(0, np.product(DEVICE_MESH_SHAPE)), [16, 64])
   DEVICE_MESH = gshard_utils.ZigzagOrderOnDeviceMesh(device_mesh, zigzag_mesh_dim=0).transpose()
+
+
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense13B16x32(MLPerfBertDense13B32x32):
+  DEVICE_MESH_SHAPE = [64, 16]
+  device_mesh =  np.reshape(
+        np.arange(0, np.product(DEVICE_MESH_SHAPE)), [16, 64])
+  DEVICE_MESH = gshard_utils.ZigzagOrderOnDeviceMesh(device_mesh, zigzag_mesh_dim=0).transpose()
