@@ -53,7 +53,6 @@ from lingvo.core import summary_utils
 from lingvo.core import tpu_embedding_layers
 import numpy as np
 
-from cloud_tpu_client import Client
 
 from lingvo import base_runner
 from google.protobuf import text_format
@@ -1640,8 +1639,6 @@ class RunnerManager:
     tf.logging.set_verbosity(tf.logging.INFO)
     tf.logging.info('tf_api_version: %s', tf.summarize_tf2_status())
 
-    #c = Client()
-    #c.configure_tpu_version(tf.__version__, restart_type='always')
 
     if FLAGS.mode == 'inspect_params':
       self.InspectParams()
