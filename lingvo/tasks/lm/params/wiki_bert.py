@@ -72,7 +72,7 @@ class BertTemplate(base_model_params.SingleTaskModelParams):
         name='transformer',
         builder=builder_cls.Params().Set(
             atten_logit_cap=self.ATTEN_LOGIT_CAP,
-            atten_logits_dtype=tf.float32,
+            attention_logits_dtype=tf.float32,
             attention_num_memory_heads=1,
             device_mesh_shape=self.DEVICE_MESH_SHAPE,
             device_mesh=self.DEVICE_MESH,
