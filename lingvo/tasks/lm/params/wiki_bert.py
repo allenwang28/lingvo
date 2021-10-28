@@ -149,12 +149,12 @@ class MLPerfTrainTemplate(BertTemplate):
     p.batch_size = self.BATCH_SIZE
     p.enable_packing = True
     p.shuffle = True
-    p.input_file = 'gs://allencwang-blinkfire/bert/train-1024/*'
+    p.input_file = 'gs://juneoh-tpu-sandbox-euw4/bert/train-1024/*'
     return p
 
   def Test(self):
     p = input_generator.TFRecordBertInput.Params()
-    p.input_file = 'gs://allencwang-blinkfire/bert/eval/data'
+    p.input_file = 'gs://juneoh-tpu-sandbox-euw4/bert/eval/data'
     p.name = 'test'
     p.batch_size = 512
     return p
