@@ -376,6 +376,12 @@ class MLPerfBertDense13B32x32SingleStep(MLPerfBertDense13B32x32):
   TRAIN_STEPS_PER_LOOP = 1
   TRAIN_EXES_PER_EVAL = 1
 
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense13B32x32SingleStepTransposed(MLPerfBertDense13B32x32SingleStep):
+  DEVICE_MESH_SHAPE = [32, 64]
+  DEVICE_MESH = np.reshape(
+      np.arange(0, np.product(DEVICE_MESH_SHAPE)), DEVICE_MESH_SHAPE)
+
 
 @model_registry.RegisterSingleTaskModel
 class MLPerfBertDense13B16x32SingleStep(MLPerfBertDense13B32x32SingleStep):
