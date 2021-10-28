@@ -348,7 +348,7 @@ class MLPerfBertDense500B2K(MLPerfBertDense1T):
 @model_registry.RegisterSingleTaskModel
 class MLPerfBertDense175B32x32(MLPerfBertDense1T):
   """Large Bert model with 13B parameters on 1024 chips."""
-  BATCH_SIZE = 4096
+  BATCH_SIZE = 2048
   HIDDEN_DIM = 12288 * 4
   MODEL_DIM = 12288
   ATTENTION_KEY_VALUE_DIM = 128
