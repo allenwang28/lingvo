@@ -72,6 +72,7 @@ class BertTemplate(base_model_params.SingleTaskModelParams):
         name='transformer',
         builder=builder_cls.Params().Set(
             atten_logit_cap=self.ATTEN_LOGIT_CAP,
+            atten_logits_dtype=tf.float32,
             attention_num_memory_heads=1,
             device_mesh_shape=self.DEVICE_MESH_SHAPE,
             device_mesh=self.DEVICE_MESH,
@@ -298,41 +299,6 @@ class MLPerfBertDense175B2K(MLPerfBertDense1T):
   HIDDEN_DIM_RESHAPE_SEGMENTS = 8
   MODEL_DIM_RESHAPE_SEGMENTS = [8]
 
-@model_registry.RegisterSingleTaskModel
-class MLPerfBertDense13B32x32(MLPerfBertDense1T):
-  """Large Bert model with 175B parameters on 1024 chips."""
-  BATCH_SIZE = 4096
-  HIDDEN_DIM = 5120 * 4
-  #HIDDEN_DIM = 12288 * 4
-  MODEL_DIM = 5120
-  #MODEL_DIM = 12288 * 4
-  ATTENTION_KEY_VALUE_DIM = 128
-  GATED_GELU = False
-  NUM_HEADS = 40
-  #NUM_HEADS = 96
-  NUM_TRANSFORMER_LAYERS = 40
-  #NUM_TRANSFORMER_LAYERS = 96
-  TRAIN_EXES_PER_EVAL = 1
-  POSITIONAL_EMBEDDING = True
-  LABEL_SMOOTHING = 0.1
-  USE_REPEAT_LAYER = True
-  REMOVE_MASK = True
-  TRAIN_STEPS_PER_LOOP = 100
-
-  DEVICE_MESH_SHAPE = [64, 32]
-  DEVICE_MESH = np.reshape(
-      np.arange(0, np.product(DEVICE_MESH_SHAPE)), [32, 64]).transpose()
-
-  HIDDEN_DIM_RESHAPE_SEGMENTS = 8
-  MODEL_DIM_RESHAPE_SEGMENTS = [8]
-
-
-@model_registry.RegisterSingleTaskModel
-class MLPerfBertDense13B32x32SingleStep(MLPerfBertDense1T):
-  TRAIN_STEPS_PER_LOOP = 1
-  TRAIN_EXES_PER_EVAL = 4000
-
-
 """
 bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
     --model=lm.wiki_bert.MLPerfBertDense500B \
@@ -402,3 +368,10 @@ class MLPerfBertDense13B32x32(MLPerfBertDense1T):
 
   HIDDEN_DIM_RESHAPE_SEGMENTS = 8
   MODEL_DIM_RESHAPE_SEGMENTS = [8]
+  ATTEN_LOGIT_CAP = 50
+
+
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense13B32x32SingleStep(MLPerfBertDense13B32x32):
+  TRAIN_STEPS_PER_LOOP = 1
+  TRAIN_EXES_PER_EVAL = 4000
