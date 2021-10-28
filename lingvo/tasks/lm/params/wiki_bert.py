@@ -346,6 +346,38 @@ class MLPerfBertDense500B2K(MLPerfBertDense1T):
 
 
 @model_registry.RegisterSingleTaskModel
+class MLPerfBertDense175B32x32(MLPerfBertDense1T):
+  """Large Bert model with 13B parameters on 1024 chips."""
+  BATCH_SIZE = 4096
+  HIDDEN_DIM = 12288 * 4
+  MODEL_DIM = 12288
+  ATTENTION_KEY_VALUE_DIM = 128
+  GATED_GELU = False
+  NUM_HEADS = 96
+  NUM_TRANSFORMER_LAYERS = 96
+  TRAIN_EXES_PER_EVAL = 1
+  POSITIONAL_EMBEDDING = True
+  LABEL_SMOOTHING = 0.0
+  USE_REPEAT_LAYER = True
+  REMOVE_MASK = True
+  TRAIN_STEPS_PER_LOOP = 100
+
+  DEVICE_MESH_SHAPE = [64, 32]
+  DEVICE_MESH = np.reshape(
+      np.arange(0, np.product(DEVICE_MESH_SHAPE)), [32, 64]).transpose()
+
+  HIDDEN_DIM_RESHAPE_SEGMENTS = 8
+  MODEL_DIM_RESHAPE_SEGMENTS = [8]
+  ATTEN_LOGIT_CAP = 50
+
+
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense175B32x32SingleStep(MLPerfBertDense175B32x32):
+  TRAIN_STEPS_PER_LOOP = 1
+  TRAIN_EXES_PER_EVAL = 1
+
+
+@model_registry.RegisterSingleTaskModel
 class MLPerfBertDense13B32x32(MLPerfBertDense1T):
   """Large Bert model with 13B parameters on 1024 chips."""
   BATCH_SIZE = 4096
