@@ -385,7 +385,7 @@ class MLPerfBertDense13B32x32SingleStepTransposed(MLPerfBertDense13B32x32SingleS
 
 
 @model_registry.RegisterSingleTaskModel
-class MLPerfBertDense13B32x32SingleStepTransposed(MLPerfBertDense13B32x32SingleStep):
+class MLPerfBertDense13B32x32SingleStepReshaped(MLPerfBertDense13B32x32SingleStep):
   BATCH_SIZE = 2048
   DEVICE_MESH_SHAPE = [256, 8]
   DEVICE_MESH = np.reshape(
