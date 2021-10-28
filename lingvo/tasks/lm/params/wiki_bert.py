@@ -17,6 +17,7 @@ from lingvo import compat as tf
 from lingvo import model_registry
 from lingvo.core import base_model_params
 from lingvo.core import gshard_builder
+from lingvo.core import gshard_utils
 from lingvo.core import optimizer
 from lingvo.core import program
 from lingvo.core import schedule
@@ -374,3 +375,9 @@ class MLPerfBertDense13B32x32(MLPerfBertDense1T):
 class MLPerfBertDense13B32x32SingleStep(MLPerfBertDense13B32x32):
   TRAIN_STEPS_PER_LOOP = 1
   TRAIN_EXES_PER_EVAL = 1
+
+
+@model_registry.RegisterSingleTaskModel
+class MLPerfBertDense13B16x32SingleStep(MLPerfBertDense13B32x32SingleStep):
+  DEVICE_MESH_SHAPE = [64, 16]
+  DEVICE_MESH = gshard_utils.GetNonPod2dMesh([16, 64], [16, 32, 2]).transpose()
