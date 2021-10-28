@@ -162,7 +162,7 @@ class MLPerfTrainTemplate(BertTemplate):
     p = program.SimpleProgramScheduleForTask(
         train_dataset_name='Train',
         train_steps_per_loop=self.TRAIN_STEPS_PER_LOOP,
-        eval_dataset_names=['Test'],
+        eval_dataset_names=[],
         eval_steps_per_loop=10,
         decode_steps_per_loop=0,
     )
@@ -373,4 +373,4 @@ class MLPerfBertDense13B32x32(MLPerfBertDense1T):
 @model_registry.RegisterSingleTaskModel
 class MLPerfBertDense13B32x32SingleStep(MLPerfBertDense13B32x32):
   TRAIN_STEPS_PER_LOOP = 1
-  TRAIN_EXES_PER_EVAL = 4000
+  TRAIN_EXES_PER_EVAL = 1
