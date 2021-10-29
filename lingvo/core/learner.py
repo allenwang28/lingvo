@@ -451,6 +451,12 @@ class Learner(base_layer.BaseLayer):
       summary_utils.AddNormSummary(
           py_utils.SanitizeScopeKey(name) + '/' + p.name, vg)
     flatten = py_utils.Flatten(var_grads)
+    for (v, g) in var_grads.Flatten():
+      self._AddEvalMetric(
+        'has_nan_or_inf/%s' % v.name,
+        py_utils.HasNanOrInf(g),
+        tf.constant(1.0))
+
     all_grad_norm = tf.sqrt(py_utils.SumSquared([g for (_, g) in flatten]))
     all_var_norm = tf.sqrt(py_utils.SumSquared([v for (v, _) in flatten]))
     grad_norm_is_nan_or_inf = tf.math.logical_or(
