@@ -163,7 +163,7 @@ class MLPerfTrainTemplate(BertTemplate):
     p = program.SimpleProgramScheduleForTask(
         train_dataset_name='Train',
         train_steps_per_loop=self.TRAIN_STEPS_PER_LOOP,
-        eval_dataset_names=[],
+        eval_dataset_names=['Test'],
         eval_steps_per_loop=10,
         decode_steps_per_loop=0,
     )
