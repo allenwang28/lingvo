@@ -149,12 +149,12 @@ class MLPerfTrainTemplate(BertTemplate):
     p.batch_size = self.BATCH_SIZE
     p.enable_packing = True
     p.shuffle = False
-    p.input_file = 'gs://juneoh-tpu-sandbox-euw4/bert/train-1024/*'
+    p.input_file = 'gs://mlperf_v1_1/bert/train-1024/*'
     return p
 
   def Test(self):
     p = input_generator.TFRecordBertInput.Params()
-    p.input_file = 'gs://juneoh-tpu-sandbox-euw4/bert/eval/data'
+    p.input_file = 'gs://mlperf_v1_1/bert/eval/data'
     p.name = 'test'
     p.batch_size = 512
     return p
@@ -271,6 +271,8 @@ class MLPerfBertDense175B(MLPerfBertDense1T):
   MODEL_DIM = 12288
   NUM_HEADS = 96
   NUM_TRANSFORMER_LAYERS = 96
+  TRAIN_STEPS_PER_LOOP = 100
+  TRAIN_EXES_PER_EVAL = 1
 
 """
 bazel run -c opt //lingvo:trainer -- --mode=sync --alsologtostderr \
