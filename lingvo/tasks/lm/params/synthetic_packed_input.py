@@ -468,3 +468,16 @@ class DenseLm12kWide162BAdam32x32(DenseLm12kWide162BAdam16x16):
   DEVICE_MESH_SHAPE = [64, 32]
   DEVICE_MESH = np.reshape(
       np.arange(0, np.product(DEVICE_MESH_SHAPE)), [32, 64]).transpose()
+
+
+# On v4-2048:
+# blaze run -c opt //third_party/py/lingvo:trainer -- --mode=sync \
+# --alsologtostderr --model=lm.synthetic_packed_input.DenseLm175B1K \
+# --logdir=${LOGDIR} --tpu=${TPU_NAME} --worker_split_size=1024 \
+# --ps_replicas=256 --job=executor_tpu --disable_tf2=true
+@model_registry.RegisterSingleTaskModel
+class DenseLm175B1K(DenseLm175B32x32):
+  """175B model running on v4-2048."""
+  DEVICE_MESH_SHAPE = [64, 16]
+  DEVICE_MESH = np.arange(
+      0, np.product(DEVICE_MESH_SHAPE)).reshape(DEVICE_MESH_SHAPE)
